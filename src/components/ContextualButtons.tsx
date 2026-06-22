@@ -5,7 +5,7 @@ import { ContextButton } from '../types/chat';
 
 interface Props {
   buttons: ContextButton[];
-  onPress: (action: string) => void;
+  onPress: (action: string, label: string) => void;
 }
 
 export function ContextualButtons({ buttons, onPress }: Props) {

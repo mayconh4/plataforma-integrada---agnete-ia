@@ -8,7 +8,7 @@ import { colors } from '../theme/colors';
 
 interface Props {
   message: ChatMessage;
-  onButtonPress: (action: string) => void;
+  onButtonPress: (action: string, label: string) => void;
   onSuggestionPress: (text: string) => void;
 }
 

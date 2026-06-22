@@ -1,239 +1,505 @@
-import { ChatMessage, ContextButton, ConversationContext } from '../types/chat';
+import { ChatMessage, ContextButton } from '../types/chat';
+import {
+  HermesActions,
+  HermesState,
+  MODEL_LABEL,
+  ModelId,
+  Priority,
+  PRIORITY_ICON,
+  PRIORITY_LABEL,
+  PRIORITY_ORDER,
+  Task,
+} from '../backend/types';
 
-let messageIdCounter = 0;
-function nextId(): string {
-  return `msg_${Date.now()}_${++messageIdCounter}`;
+type Draft = Omit<ChatMessage, 'id' | 'timestamp'>;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function pendingTasks(state: HermesState): Task[] {
+  return state.tasks
+    .filter((t) => t.status === 'pending')
+    .sort((a, b) =>
+      PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || a.createdAt - b.createdAt,
+    );
 }
 
-type IntentHandler = {
-  keywords: string[];
-  handle: (input: string, ctx: ConversationContext) => Omit<ChatMessage, 'id' | 'timestamp'>;
-};
+function plural(n: number, singular: string, prefixPlural: string): string {
+  return n === 1 ? `${n} ${singular}` : `${n} ${prefixPlural}`;
+}
 
-const intentHandlers: IntentHandler[] = [
-  {
-    keywords: ['tarefa', 'tarefas', 'pendente', 'pendentes', 'task'],
-    handle: (_input, _ctx) => ({
-      role: 'hermes',
-      text: 'Encontrei 4 tarefas pendentes. O que deseja fazer?',
-      buttons: [
-        { id: 'b1', label: 'Executar Todas', action: 'execute_all_tasks', variant: 'primary' },
-        { id: 'b2', label: 'Escolher Manualmente', action: 'choose_tasks' },
-        { id: 'b3', label: 'Adiar 30 minutos', action: 'defer_tasks_30m' },
-        { id: 'b4', label: 'Cancelar', action: 'cancel_tasks', variant: 'ghost' },
-      ],
-      suggestions: ['Mostrar detalhes', 'Priorizar urgentes'],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['modelo', 'model', 'gerar', 'conteúdo', 'conteudo', 'ia', 'ai'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'Qual modelo deseja usar para gerar conteúdo?',
-      buttons: [
-        { id: 'b1', label: 'Claude', icon: '🟣', action: 'select_model_claude', variant: 'primary' },
-        { id: 'b2', label: 'GPT', icon: '🟢', action: 'select_model_gpt' },
-        { id: 'b3', label: 'Gemini', icon: '🔵', action: 'select_model_gemini' },
-        { id: 'b4', label: 'DeepSeek', icon: '🟠', action: 'select_model_deepseek' },
-      ],
-      suggestions: ['Modelo Local', 'Comparar modelos'],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['automação', 'automacao', 'automatizar', 'automation'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'Detectei oportunidade de automação. Deseja continuar?',
-      buttons: [
-        { id: 'b1', label: 'Sim', action: 'confirm_automation', variant: 'primary' },
-        { id: 'b2', label: 'Não', action: 'deny_automation', variant: 'ghost' },
-        { id: 'b3', label: 'Mostrar Detalhes', action: 'show_automation_details' },
-        { id: 'b4', label: 'Executar Mais Tarde', action: 'defer_automation' },
-      ],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['prioridade', 'priorizar', 'urgente', 'importância', 'importancia'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'Qual prioridade deseja atribuir?',
-      buttons: [
-        { id: 'b1', label: 'Urgente', icon: '🔴', action: 'set_priority_urgent', variant: 'danger' },
-        { id: 'b2', label: 'Alta', icon: '🟠', action: 'set_priority_high', variant: 'primary' },
-        { id: 'b3', label: 'Média', icon: '🟡', action: 'set_priority_medium' },
-        { id: 'b4', label: 'Baixa', icon: '🟢', action: 'set_priority_low', variant: 'ghost' },
-      ],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['ajuda', 'help', 'como', 'o que', 'menu'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'Sou o Hermes, seu assistente operacional inteligente. Como posso ajudar?',
-      buttons: [
-        { id: 'b1', label: 'Ver Tarefas', icon: '📋', action: 'show_tasks', variant: 'primary' },
-        { id: 'b2', label: 'Automações', icon: '⚡', action: 'show_automations' },
-        { id: 'b3', label: 'Configurações', icon: '⚙️', action: 'show_settings' },
-        { id: 'b4', label: 'Status do Sistema', icon: '📊', action: 'show_status' },
-      ],
-      suggestions: ['Gerar conteúdo', 'Definir prioridades'],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['status', 'sistema', 'relatório', 'relatorio', 'dashboard'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'Sistema operando normalmente. 12 agentes ativos, 3 tarefas em execução, 97% de uptime.',
-      buttons: [
-        { id: 'b1', label: 'Ver Detalhes', action: 'show_status_details', variant: 'primary' },
-        { id: 'b2', label: 'Relatório Completo', action: 'full_report' },
-        { id: 'b3', label: 'Otimizar', action: 'optimize_system' },
-      ],
-      suggestions: ['Alertas recentes', 'Performance'],
-      narrate: true,
-    }),
-  },
-  {
-    keywords: ['configurar', 'configuração', 'configuracao', 'settings', 'preferência'],
-    handle: () => ({
-      role: 'hermes',
-      text: 'O que deseja configurar?',
-      buttons: [
-        { id: 'b1', label: 'Voz e Áudio', icon: '🔊', action: 'config_voice', variant: 'primary' },
-        { id: 'b2', label: 'Agentes IA', icon: '🤖', action: 'config_agents' },
-        { id: 'b3', label: 'Notificações', icon: '🔔', action: 'config_notifications' },
-        { id: 'b4', label: 'Aparência', icon: '🎨', action: 'config_appearance' },
-      ],
-      narrate: true,
-    }),
-  },
+function taskLines(tasks: Task[]): string {
+  return tasks
+    .map((t) => `${PRIORITY_ICON[t.priority]} ${t.title} — ${PRIORITY_LABEL[t.priority]}`)
+    .join('\n');
+}
+
+function taskButtons(tasks: Task[], verb: string): ContextButton[] {
+  return tasks.slice(0, 6).map((t, i) => ({
+    id: `${verb}_${i}`,
+    label: t.title,
+    icon: PRIORITY_ICON[t.priority],
+    action: `${verb}:${t.id}`,
+  }));
+}
+
+function extractTaskTitle(text: string): string {
+  let t = text.trim();
+  if (t.includes(':')) {
+    t = t.slice(t.indexOf(':') + 1).trim();
+  } else {
+    t = t
+      .replace(
+        /^\s*(criar|cria|crie|adicionar|adiciona|adicione|nova|novo|registrar|registra|anotar|anota|lembrar(?:\s+de)?)\s+/i,
+        '',
+      )
+      .replace(/^\s*(uma\s+|um\s+)?(tarefa|task|lembrete|afazer|to-?do)\s+(de\s+|para\s+|que\s+)?/i, '');
+  }
+  return t.trim();
+}
+
+const helpButtons: ContextButton[] = [
+  { id: 'b1', label: 'Ver Tarefas', icon: '📋', action: 'show_tasks', variant: 'primary' },
+  { id: 'b2', label: 'Gerar Conteúdo', icon: '✨', action: 'select_model' },
+  { id: 'b3', label: 'Automações', icon: '⚡', action: 'show_automations' },
+  { id: 'b4', label: 'Status', icon: '📊', action: 'show_status' },
 ];
 
-const actionResponses: Record<string, () => Omit<ChatMessage, 'id' | 'timestamp'>> = {
-  execute_all_tasks: () => ({
-    role: 'hermes',
-    text: 'Executando todas as 4 tarefas pendentes. Tempo estimado: 12 minutos. Deseja acompanhar em tempo real?',
-    buttons: [
-      { id: 'b1', label: 'Acompanhar', action: 'watch_tasks', variant: 'primary' },
-      { id: 'b2', label: 'Notificar ao Concluir', action: 'notify_done' },
-      { id: 'b3', label: 'Cancelar Execução', action: 'cancel_execution', variant: 'danger' },
-    ],
-    narrate: true,
-  }),
-  choose_tasks: () => ({
-    role: 'hermes',
-    text: 'Selecione as tarefas que deseja executar:',
-    buttons: [
-      { id: 'b1', label: 'Sync Dados CRM', action: 'task_crm' },
-      { id: 'b2', label: 'Gerar Relatório', action: 'task_report' },
-      { id: 'b3', label: 'Backup Automático', action: 'task_backup' },
-      { id: 'b4', label: 'Atualizar Agentes', action: 'task_agents' },
-    ],
-    narrate: true,
-  }),
-  defer_tasks_30m: () => ({
-    role: 'hermes',
-    text: 'Tarefas adiadas por 30 minutos. Vou te lembrar às 14:30.',
-    buttons: [
-      { id: 'b1', label: 'Ok', action: 'acknowledge', variant: 'primary' },
-      { id: 'b2', label: 'Alterar Tempo', action: 'change_defer_time' },
-    ],
-    narrate: true,
-  }),
-  confirm_automation: () => ({
-    role: 'hermes',
-    text: 'Automação ativada com sucesso. O fluxo será executado automaticamente quando detectar o gatilho configurado.',
-    buttons: [
-      { id: 'b1', label: 'Ver Fluxo', action: 'show_flow', variant: 'primary' },
-      { id: 'b2', label: 'Testar Agora', action: 'test_automation' },
-    ],
-    narrate: true,
-  }),
-  select_model_claude: () => ({
-    role: 'hermes',
-    text: 'Claude selecionado. Qual tipo de conteúdo deseja gerar?',
-    buttons: [
-      { id: 'b1', label: 'Texto', action: 'gen_text', variant: 'primary' },
-      { id: 'b2', label: 'Análise', action: 'gen_analysis' },
-      { id: 'b3', label: 'Código', action: 'gen_code' },
-      { id: 'b4', label: 'Resumo', action: 'gen_summary' },
-    ],
-    narrate: true,
-  }),
-};
+// ---------------------------------------------------------------------------
+// Respostas de domínio reutilizáveis
+// ---------------------------------------------------------------------------
 
-export function processUserInput(input: string, context: ConversationContext): ChatMessage {
+function tasksOverview(state: HermesState): Draft {
+  const pending = pendingTasks(state);
+  if (pending.length === 0) {
+    return {
+      role: 'hermes',
+      text: 'Você não tem tarefas pendentes no momento. 🎉',
+      buttons: [
+        { id: 'b1', label: 'Criar Tarefa', icon: '➕', action: 'new_task_hint', variant: 'primary' },
+        { id: 'b2', label: 'Automações', icon: '⚡', action: 'show_automations' },
+        { id: 'b3', label: 'Status', icon: '📊', action: 'show_status' },
+      ],
+      narrate: true,
+    };
+  }
+  return {
+    role: 'hermes',
+    text: `Você tem ${plural(pending.length, 'tarefa pendente', 'tarefas pendentes')}:\n${taskLines(
+      pending,
+    )}\n\nO que deseja fazer?`,
+    buttons: [
+      { id: 'b1', label: 'Executar Todas', action: 'execute_all_tasks', variant: 'primary' },
+      { id: 'b2', label: 'Escolher', action: 'choose_tasks' },
+      { id: 'b3', label: 'Priorizar', action: 'prioritize' },
+      { id: 'b4', label: 'Adiar 30 min', action: 'defer_tasks_30m' },
+      { id: 'b5', label: 'Cancelar Todas', action: 'cancel_tasks', variant: 'danger' },
+    ],
+    narrate: true,
+  };
+}
+
+function automationsOverview(state: HermesState): Draft {
+  const lines = state.automations
+    .map((a) => `${a.enabled ? '🟢' : '⚪️'} ${a.name} — ${a.trigger}`)
+    .join('\n');
+  const active = state.automations.filter((a) => a.enabled).length;
+  return {
+    role: 'hermes',
+    text: `${active} de ${state.automations.length} automações ativas:\n${lines}\n\nToque para ligar/desligar:`,
+    buttons: state.automations.map((a, i) => ({
+      id: `auto_${i}`,
+      label: `${a.name} ${a.enabled ? '(ligada)' : '(desligada)'}`,
+      icon: a.enabled ? '⏸️' : '▶️',
+      action: `toggle_auto:${a.id}`,
+      variant: a.enabled ? ('secondary' as const) : ('primary' as const),
+    })),
+    narrate: true,
+  };
+}
+
+function statusOverview(state: HermesState): Draft {
+  const pending = state.tasks.filter((t) => t.status === 'pending').length;
+  const done = state.tasks.filter((t) => t.status === 'done').length;
+  const deferred = state.tasks.filter((t) => t.status === 'deferred').length;
+  const autos = state.automations.filter((a) => a.enabled).length;
+  const ms = Date.now() - state.startedAt;
+  const hours = Math.floor(ms / 3_600_000);
+  const uptime = hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  return {
+    role: 'hermes',
+    text: `📊 Status do sistema\n• ${pending} pendente(s), ${done} concluída(s), ${deferred} adiada(s)\n• ${autos} automação(ões) ativa(s)\n• Modelo atual: ${MODEL_LABEL[state.settings.preferredModel]}\n• Voz: ${state.settings.voiceEnabled ? 'ligada' : 'desligada'}\n• Ativo há ${uptime}`,
+    buttons: [
+      { id: 'b1', label: 'Ver Tarefas', action: 'show_tasks', variant: 'primary' },
+      { id: 'b2', label: 'Automações', action: 'show_automations' },
+      { id: 'b3', label: 'Configurações', action: 'show_settings' },
+    ],
+    narrate: true,
+  };
+}
+
+function settingsOverview(state: HermesState): Draft {
+  return {
+    role: 'hermes',
+    text: 'O que deseja configurar?',
+    buttons: [
+      {
+        id: 'b1',
+        label: `Voz: ${state.settings.voiceEnabled ? 'Ligada' : 'Desligada'}`,
+        icon: '🔊',
+        action: 'config_voice',
+        variant: 'primary',
+      },
+      {
+        id: 'b2',
+        label: `Modelo: ${MODEL_LABEL[state.settings.preferredModel]}`,
+        icon: '🤖',
+        action: 'select_model',
+      },
+      { id: 'b3', label: 'Limpar Conversa', icon: '🧹', action: 'clear_conversation' },
+    ],
+    narrate: true,
+  };
+}
+
+function modelPicker(): Draft {
+  const models: ModelId[] = ['claude', 'gpt', 'gemini', 'deepseek', 'local'];
+  const icons: Record<ModelId, string> = {
+    claude: '🟣',
+    gpt: '🟢',
+    gemini: '🔵',
+    deepseek: '🟠',
+    local: '⚫️',
+  };
+  return {
+    role: 'hermes',
+    text: 'Qual modelo deseja usar para gerar conteúdo?',
+    buttons: models.map((m, i) => ({
+      id: `m_${i}`,
+      label: MODEL_LABEL[m],
+      icon: icons[m],
+      action: `set_model:${m}`,
+      variant: i === 0 ? ('primary' as const) : undefined,
+    })),
+    narrate: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Entrada de texto livre
+// ---------------------------------------------------------------------------
+
+export function handleUserInput(input: string, state: HermesState, actions: HermesActions): Draft {
   const lower = input.toLowerCase();
 
-  // Check if input is a button action
-  const actionHandler = actionResponses[lower];
-  if (actionHandler) {
-    const partial = actionHandler();
-    return { ...partial, id: nextId(), timestamp: Date.now() };
+  // Criação de tarefa em linguagem natural
+  const isCreate = /\b(criar|cria|crie|adicionar|adiciona|adicione|nova|novo|registrar|anotar|lembrar)\b/.test(
+    lower,
+  );
+  if (isCreate && /(tarefa|task|lembrete|afazer|to-?do)/.test(lower)) {
+    const title = extractTaskTitle(input) || 'Nova tarefa';
+    const task = actions.createTask(title);
+    return {
+      role: 'hermes',
+      text: `Tarefa criada: "${task.title}" (prioridade ${PRIORITY_LABEL[task.priority]}). Deseja ajustar a prioridade?`,
+      buttons: [
+        { id: 'b1', label: 'Definir Prioridade', action: `prio_task:${task.id}`, variant: 'primary' },
+        { id: 'b2', label: 'Ver Tarefas', action: 'show_tasks' },
+      ],
+      narrate: true,
+    };
   }
 
-  // Match intent by keywords
-  for (const handler of intentHandlers) {
-    if (handler.keywords.some((kw) => lower.includes(kw))) {
-      const partial = handler.handle(input, context);
-      return { ...partial, id: nextId(), timestamp: Date.now() };
-    }
+  if (/(tarefa|tarefas|pendente|pendentes|afazer|to-?do)/.test(lower)) {
+    return tasksOverview(state);
+  }
+  if (/(modelo|model|gerar|gera|conteúdo|conteudo|\bia\b|\bai\b)/.test(lower)) {
+    return modelPicker();
+  }
+  if (/(automa(ç|c)(ã|a)o|automatizar|automation|rotina|fluxo)/.test(lower)) {
+    return automationsOverview(state);
+  }
+  if (/(prioridade|priorizar|urgente|importan)/.test(lower)) {
+    return handleAction('prioritize', state, actions);
+  }
+  if (/(status|sistema|relat(ó|o)rio|dashboard|painel)/.test(lower)) {
+    return statusOverview(state);
+  }
+  if (/(configurar|configura(ç|c)(ã|a)o|settings|prefer(ê|e)ncia|ajustes)/.test(lower)) {
+    return settingsOverview(state);
+  }
+  if (/(ajuda|help|menu|^ol(á|a)$|^oi$|^e a(í|i)$|o que voc(ê|e) faz)/.test(lower)) {
+    return {
+      role: 'hermes',
+      text: 'Sou o Hermes, seu assistente operacional. Posso gerenciar suas tarefas, automações e configurações. Como posso ajudar?',
+      buttons: helpButtons,
+      suggestions: ['Ver tarefas', 'Criar tarefa: revisar estoque', 'Status'],
+      narrate: true,
+    };
   }
 
-  // Default fallback — still provides contextual buttons
+  // Fallback — oferece criar tarefa a partir do texto digitado
   return {
-    id: nextId(),
     role: 'hermes',
     text: `Entendi: "${input}". Como deseja prosseguir?`,
-    timestamp: Date.now(),
     buttons: [
-      { id: 'b1', label: 'Criar Tarefa', action: 'create_task_from_input', variant: 'primary' },
-      { id: 'b2', label: 'Pesquisar', action: 'search_input' },
-      { id: 'b3', label: 'Automatizar', action: 'automate_input' },
+      { id: 'b1', label: 'Criar como Tarefa', action: `create_task:${input}`, variant: 'primary' },
+      { id: 'b2', label: 'Ver Tarefas', action: 'show_tasks' },
+      { id: 'b3', label: 'Ajuda', action: 'help' },
     ],
-    suggestions: ['Detalhar mais', 'Ajuda'],
+    suggestions: ['Status', 'Automações'],
     narrate: true,
   };
 }
 
-export function processButtonAction(action: string, context: ConversationContext): ChatMessage {
-  const handler = actionResponses[action];
-  if (handler) {
-    const partial = handler();
-    return { ...partial, id: nextId(), timestamp: Date.now() };
+// ---------------------------------------------------------------------------
+// Ações de botões
+// ---------------------------------------------------------------------------
+
+export function handleAction(action: string, state: HermesState, actions: HermesActions): Draft {
+  const sep = action.indexOf(':');
+  const verb = sep === -1 ? action : action.slice(0, sep);
+  const arg = sep === -1 ? '' : action.slice(sep + 1);
+
+  switch (verb) {
+    case 'show_tasks':
+      return tasksOverview(state);
+
+    case 'execute_all_tasks': {
+      const done = actions.completeAllPending();
+      if (done.length === 0) {
+        return { role: 'hermes', text: 'Não há tarefas pendentes para executar.', buttons: helpButtons, narrate: true };
+      }
+      return {
+        role: 'hermes',
+        text: `✅ Concluí ${plural(done.length, 'tarefa', 'tarefas')}: ${done
+          .map((t) => t.title)
+          .join(', ')}.`,
+        buttons: [
+          { id: 'b1', label: 'Ver Tarefas', action: 'show_tasks', variant: 'primary' },
+          { id: 'b2', label: 'Status', action: 'show_status' },
+        ],
+        narrate: true,
+      };
+    }
+
+    case 'choose_tasks': {
+      const pending = pendingTasks(state);
+      if (pending.length === 0) {
+        return tasksOverview(state);
+      }
+      return {
+        role: 'hermes',
+        text: 'Toque na tarefa que deseja concluir:',
+        buttons: taskButtons(pending, 'run_task'),
+        narrate: true,
+      };
+    }
+
+    case 'run_task': {
+      const task = actions.completeTask(arg);
+      return {
+        role: 'hermes',
+        text: task ? `✅ Tarefa concluída: "${task.title}".` : 'Tarefa não encontrada.',
+        buttons: [
+          { id: 'b1', label: 'Concluir Outra', action: 'choose_tasks', variant: 'primary' },
+          { id: 'b2', label: 'Ver Tarefas', action: 'show_tasks' },
+        ],
+        narrate: true,
+      };
+    }
+
+    case 'defer_tasks_30m': {
+      const deferred = actions.deferAllPending(30);
+      return {
+        role: 'hermes',
+        text: deferred.length
+          ? `⏰ ${plural(deferred.length, 'tarefa adiada', 'tarefas adiadas')} por 30 minutos. Volto a lembrar você.`
+          : 'Não há tarefas pendentes para adiar.',
+        buttons: [{ id: 'b1', label: 'Ok', action: 'show_status', variant: 'primary' }],
+        narrate: true,
+      };
+    }
+
+    case 'cancel_tasks': {
+      const cancelled = actions.cancelAllPending();
+      return {
+        role: 'hermes',
+        text: cancelled.length
+          ? `🗑️ ${plural(cancelled.length, 'tarefa cancelada', 'tarefas canceladas')}.`
+          : 'Não há tarefas pendentes para cancelar.',
+        buttons: [{ id: 'b1', label: 'Ver Tarefas', action: 'show_tasks', variant: 'primary' }],
+        narrate: true,
+      };
+    }
+
+    case 'prioritize': {
+      const pending = pendingTasks(state);
+      if (pending.length === 0) {
+        return tasksOverview(state);
+      }
+      return {
+        role: 'hermes',
+        text: 'Qual tarefa deseja priorizar?',
+        buttons: taskButtons(pending, 'prio_task'),
+        narrate: true,
+      };
+    }
+
+    case 'prio_task': {
+      const levels: Priority[] = ['urgent', 'high', 'medium', 'low'];
+      return {
+        role: 'hermes',
+        text: 'Qual prioridade deseja atribuir?',
+        buttons: levels.map((p, i) => ({
+          id: `p_${i}`,
+          label: PRIORITY_LABEL[p],
+          icon: PRIORITY_ICON[p],
+          action: `set_priority:${arg}:${p}`,
+          variant: p === 'urgent' ? ('danger' as const) : p === 'high' ? ('primary' as const) : undefined,
+        })),
+        narrate: true,
+      };
+    }
+
+    case 'set_priority': {
+      const [id, level] = arg.split(':');
+      const task = actions.setPriority(id, level as Priority);
+      return {
+        role: 'hermes',
+        text: task
+          ? `Prioridade de "${task.title}" definida como ${PRIORITY_LABEL[task.priority]} ${PRIORITY_ICON[task.priority]}.`
+          : 'Tarefa não encontrada.',
+        buttons: [{ id: 'b1', label: 'Ver Tarefas', action: 'show_tasks', variant: 'primary' }],
+        narrate: true,
+      };
+    }
+
+    case 'show_automations':
+      return automationsOverview(state);
+
+    case 'toggle_auto': {
+      const auto = actions.toggleAutomation(arg);
+      return {
+        role: 'hermes',
+        text: auto
+          ? `${auto.name} ${auto.enabled ? 'ativada ✅' : 'desativada ⏸️'}.`
+          : 'Automação não encontrada.',
+        buttons: [{ id: 'b1', label: 'Ver Automações', action: 'show_automations', variant: 'primary' }],
+        narrate: true,
+      };
+    }
+
+    case 'show_status':
+      return statusOverview(state);
+
+    case 'show_settings':
+      return settingsOverview(state);
+
+    case 'config_voice':
+      return {
+        role: 'hermes',
+        text: `A voz está ${state.settings.voiceEnabled ? 'ligada' : 'desligada'}. O que deseja?`,
+        buttons: [
+          { id: 'b1', label: 'Ligar Voz', icon: '🔊', action: 'set_voice:on', variant: 'primary' },
+          { id: 'b2', label: 'Desligar Voz', icon: '🔇', action: 'set_voice:off', variant: 'ghost' },
+        ],
+        narrate: true,
+      };
+
+    case 'set_voice': {
+      const enabled = arg === 'on';
+      actions.setVoiceEnabled(enabled);
+      return {
+        role: 'hermes',
+        text: enabled ? 'Voz ligada 🔊.' : 'Voz desligada 🔇.',
+        buttons: [{ id: 'b1', label: 'Configurações', action: 'show_settings', variant: 'primary' }],
+        narrate: enabled,
+      };
+    }
+
+    case 'select_model':
+      return modelPicker();
+
+    case 'set_model': {
+      actions.setModel(arg as ModelId);
+      return {
+        role: 'hermes',
+        text: `Modelo ${MODEL_LABEL[arg as ModelId]} selecionado. Tudo pronto para gerar conteúdo.`,
+        buttons: [
+          { id: 'b1', label: 'Ver Tarefas', action: 'show_tasks', variant: 'primary' },
+          { id: 'b2', label: 'Configurações', action: 'show_settings' },
+        ],
+        narrate: true,
+      };
+    }
+
+    case 'create_task': {
+      const task = actions.createTask(extractTaskTitle(arg) || arg);
+      return {
+        role: 'hermes',
+        text: `Tarefa criada: "${task.title}".`,
+        buttons: [
+          { id: 'b1', label: 'Definir Prioridade', action: `prio_task:${task.id}`, variant: 'primary' },
+          { id: 'b2', label: 'Ver Tarefas', action: 'show_tasks' },
+        ],
+        narrate: true,
+      };
+    }
+
+    case 'new_task_hint':
+      return {
+        role: 'hermes',
+        text: 'Para criar uma tarefa, digite algo como "criar tarefa: revisar estoque".',
+        suggestions: ['Criar tarefa: revisar estoque', 'Ver tarefas'],
+        narrate: true,
+      };
+
+    case 'clear_conversation':
+      // A limpeza em si é tratada pela UI/store; aqui apenas confirmamos.
+      return {
+        role: 'hermes',
+        text: 'Conversa limpa.',
+        buttons: helpButtons,
+        narrate: false,
+      };
+
+    case 'help':
+      return {
+        role: 'hermes',
+        text: 'Como posso ajudar?',
+        buttons: helpButtons,
+        suggestions: ['Ver tarefas', 'Status', 'Automações'],
+        narrate: true,
+      };
+
+    default:
+      return {
+        role: 'hermes',
+        text: 'Não reconheci essa ação. Veja o que posso fazer:',
+        buttons: helpButtons,
+        narrate: true,
+      };
   }
-
-  return {
-    id: nextId(),
-    role: 'hermes',
-    text: `Ação "${action}" processada. O que deseja fazer agora?`,
-    timestamp: Date.now(),
-    buttons: [
-      { id: 'b1', label: 'Menu Principal', action: 'help', variant: 'primary' },
-      { id: 'b2', label: 'Continuar', action: 'continue_flow' },
-    ],
-    narrate: true,
-  };
 }
 
-export function getWelcomeMessage(): ChatMessage {
+// ---------------------------------------------------------------------------
+// Boas-vindas
+// ---------------------------------------------------------------------------
+
+export function welcomeMessage(state: HermesState): Draft {
+  const pending = pendingTasks(state).length;
   return {
-    id: nextId(),
     role: 'hermes',
-    text: 'Olá! Sou o Hermes, seu assistente operacional inteligente. Estou pronto para ajudar. O que deseja fazer?',
-    timestamp: Date.now(),
-    buttons: [
-      { id: 'b1', label: 'Ver Tarefas', icon: '📋', action: 'show_tasks', variant: 'primary' },
-      { id: 'b2', label: 'Gerar Conteúdo', icon: '✨', action: 'select_model' },
-      { id: 'b3', label: 'Automações', icon: '⚡', action: 'show_automations' },
-      { id: 'b4', label: 'Status do Sistema', icon: '📊', action: 'show_status' },
-    ],
-    suggestions: ['Configurações', 'Ajuda'],
+    text:
+      'Olá! Sou o Hermes, seu assistente operacional inteligente.' +
+      (pending > 0
+        ? ` Você tem ${plural(pending, 'tarefa pendente', 'tarefas pendentes')}.`
+        : ' Tudo em dia por aqui.') +
+      ' O que deseja fazer?',
+    buttons: helpButtons,
+    suggestions: ['Ver tarefas', 'Status', 'Configurações'],
     narrate: true,
   };
 }

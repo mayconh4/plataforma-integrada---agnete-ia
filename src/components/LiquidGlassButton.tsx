@@ -13,7 +13,7 @@ import { ContextButton } from '../types/chat';
 
 interface Props {
   button: ContextButton;
-  onPress: (action: string) => void;
+  onPress: (action: string, label: string) => void;
 }
 
 export function LiquidGlassButton({ button, onPress }: Props) {
@@ -46,7 +46,7 @@ export function LiquidGlassButton({ button, onPress }: Props) {
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onPress(button.action);
+    onPress(button.action, button.label);
   };
 
   return (

@@ -13,65 +13,35 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
-import { ChatMessage, ConversationContext } from '../types/chat';
-import { processUserInput, processButtonAction, getWelcomeMessage } from '../services/hermesEngine';
+import { ChatMessage } from '../types/chat';
+import { useHermes } from '../backend/useHermes';
+import { pressButton, pressSuggestion, sendMessage } from '../backend/store';
 import { speak } from '../services/voiceService';
 import { colors } from '../theme/colors';
 
 export function ChatScreen() {
-  const [messages, setMessages] = useState<ChatMessage[]>([getWelcomeMessage()]);
+  const { conversation } = useHermes();
   const [inputText, setInputText] = useState('');
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<ChatMessage>>(null);
+  const lastSpokenId = useRef<string | null>(null);
 
-  const context: ConversationContext = { history: messages };
-
+  // Narra a última mensagem do Hermes quando ela muda.
   useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (last?.role === 'hermes' && last.narrate) {
+    const last = conversation[conversation.length - 1];
+    if (last && last.role === 'hermes' && last.narrate && last.id !== lastSpokenId.current) {
+      lastSpokenId.current = last.id;
       speak(last.text);
     }
-  }, [messages]);
-
-  const addMessages = (userMsg: ChatMessage, hermesMsg: ChatMessage) => {
-    setMessages((prev) => [...prev, userMsg, hermesMsg]);
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  };
+    if (conversation.length) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+    }
+  }, [conversation]);
 
   const handleSend = () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
-  };
-
-  const handleButtonPress = (action: string) => {
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text: `[${action}]`,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processButtonAction(action, context);
-    addMessages(userMsg, hermesMsg);
-  };
-
-  const handleSuggestionPress = (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
+    sendMessage(text);
   };
 
   return (
@@ -83,7 +53,7 @@ export function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          keyboardVerticalOffset={0}
         >
           {/* Header */}
           <View style={styles.header}>
@@ -100,13 +70,13 @@ export function ChatScreen() {
           {/* Messages */}
           <FlatList
             ref={flatListRef}
-            data={messages}
+            data={conversation}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <ChatBubble
                 message={item}
-                onButtonPress={handleButtonPress}
-                onSuggestionPress={handleSuggestionPress}
+                onButtonPress={pressButton}
+                onSuggestionPress={pressSuggestion}
               />
             )}
             style={styles.messageList}

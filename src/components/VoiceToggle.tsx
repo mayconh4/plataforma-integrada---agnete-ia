@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
-import { isVoiceEnabled, toggleVoice } from '../services/voiceService';
+import { toggleVoice } from '../services/voiceService';
+import { useHermes } from '../backend/useHermes';
 
 export function VoiceToggle() {
-  const [enabled, setEnabled] = useState(isVoiceEnabled());
+  const enabled = useHermes().settings.voiceEnabled;
 
   const handleToggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newState = toggleVoice();
-    setEnabled(newState);
+    toggleVoice();
   };
 
   return (

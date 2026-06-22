@@ -1,28 +1,25 @@
 import * as Speech from 'expo-speech';
-
-let voiceEnabled = true;
+import { getState, setVoiceEnabled as persistVoiceEnabled } from '../backend/store';
 
 export function isVoiceEnabled(): boolean {
-  return voiceEnabled;
+  return getState().settings.voiceEnabled;
 }
 
 export function setVoiceEnabled(enabled: boolean): void {
-  voiceEnabled = enabled;
+  persistVoiceEnabled(enabled);
   if (!enabled) {
     Speech.stop();
   }
 }
 
 export function toggleVoice(): boolean {
-  voiceEnabled = !voiceEnabled;
-  if (!voiceEnabled) {
-    Speech.stop();
-  }
-  return voiceEnabled;
+  const next = !isVoiceEnabled();
+  setVoiceEnabled(next);
+  return next;
 }
 
 export function speak(text: string): void {
-  if (!voiceEnabled) return;
+  if (!isVoiceEnabled()) return;
   Speech.stop();
   Speech.speak(text, {
     language: 'pt-BR',
