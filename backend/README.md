@@ -35,6 +35,27 @@ EXPO_PUBLIC_HERMES_WS_URL=wss://<algo>.trycloudflare.com/ws
 > A URL do `trycloudflare` muda a cada execução. Para uma URL fixa, crie um
 > tunnel nomeado na sua conta Cloudflare (também grátis).
 
+## Plugar o SEU Hermes (cérebro)
+O ponto de integração é `app/hermes.py` → `respond()`. Escolha em `.env`:
+
+| `HERMES_BACKEND` | Como funciona | Variáveis |
+|---|---|---|
+| `openrouter` (default) | este backend fala direto com a IA (ModelRouter) | `OPENROUTER_API_KEY` |
+| `http` | chama o seu Hermes por HTTP | `HERMES_HTTP_URL`, `HERMES_HTTP_AUTH?` |
+| `command` | executa seu Hermes (CLI), JSON via stdin/stdout | `HERMES_COMMAND` |
+| `python` | importa `modulo:funcao` do seu Hermes | `HERMES_PYTHON_TARGET` |
+
+O backend manda este JSON ao seu Hermes:
+```json
+{ "text": "...", "history": [{"role":"user|hermes","text":"..."}],
+  "settings": {"preferred_model":"claude"}, "project": null, "user_id": "uuid" }
+```
+E espera de volta:
+```json
+{ "text": "resposta", "buttons": ["Opção A","Opção B"], "narrate": true }
+```
+`buttons` é opcional (vira botões de múltipla escolha no app). Pode devolver só uma string.
+
 ## Protocolo WebSocket
 - App → server: `{ "type": "user_message", "text": "...", "project": "opcional" }`
 - Server → app:

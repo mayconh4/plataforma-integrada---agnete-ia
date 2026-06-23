@@ -1,13 +1,18 @@
 """Hermes — o cérebro do Continental.
 
-Responsabilidades:
-- Decidir QUAL IA generativa usar para cada projeto/agente (ModelRouter).
-- Conversar com o usuário, tomar iniciativa e propor próximos passos.
-- Emitir botões dinâmicos (múltipla escolha) quando precisar de decisão.
+`respond()` é o ÚNICO ponto de integração. Ele despacha para o backend escolhido
+em HERMES_BACKEND:
+  - "openrouter": conversa direto com a IA (com ModelRouter + botões dinâmicos).
+  - "http":       chama o SEU Hermes local por HTTP.
+  - "command":    executa o SEU Hermes como script/CLI (JSON via stdin/stdout).
+  - "python":     importa e chama uma função do SEU Hermes.
 
-Este módulo é o ponto de integração. Hoje ele responde via OpenRouter; quando
-o Hermes "real" (local) estiver pronto, basta plugá-lo em `respond()`.
+Contrato de retorno (sempre): {"text": str, "buttons": list|None, "narrate": bool}.
+buttons: lista de {"label": str} (ou strings) → vira botão de múltipla escolha no app.
 """
+import asyncio
+import importlib
+import json
 from typing import Any, Optional
 
 import httpx
@@ -15,14 +20,13 @@ import httpx
 from . import config
 
 # ---------------------------------------------------------------------------
-# Roteador de modelos: o Hermes escolhe a melhor IA por projeto/agente.
-# Edite livremente. Slugs em https://openrouter.ai/models
+# ModelRouter: o Hermes escolhe a melhor IA por projeto/agente (caminho openrouter)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = "anthropic/claude-3.5-sonnet"
 
 MODEL_BY_PROJECT: dict[str, str] = {
-    "perfection_airsoft": "anthropic/claude-3.5-sonnet",  # marketing/estratégia
+    "perfection_airsoft": "anthropic/claude-3.5-sonnet",
     "app_barber": "openai/gpt-4o-mini",
     "app_beleza": "openai/gpt-4o-mini",
 }
@@ -37,7 +41,6 @@ MODEL_BY_PREFERENCE: dict[str, str] = {
 
 
 def choose_model(project: Optional[str], preferred: Optional[str]) -> str:
-    """Decide o modelo: projeto tem prioridade, depois preferência, depois default."""
     if project and project in MODEL_BY_PROJECT:
         return MODEL_BY_PROJECT[project]
     if preferred and preferred in MODEL_BY_PREFERENCE:
@@ -45,33 +48,117 @@ def choose_model(project: Optional[str], preferred: Optional[str]) -> str:
     return DEFAULT_MODEL
 
 
+# ---------------------------------------------------------------------------
+# Normalização de botões e do retorno
+# ---------------------------------------------------------------------------
+
+def normalize_buttons(raw: Any) -> Optional[list[dict[str, Any]]]:
+    if not raw or not isinstance(raw, list):
+        return None
+    buttons = []
+    for i, item in enumerate(raw[:4]):
+        label = item if isinstance(item, str) else str(item.get("label", "")) if isinstance(item, dict) else ""
+        if not label:
+            continue
+        buttons.append({"id": f"opt_{i}", "label": label, "action": label, "variant": "primary" if i == 0 else None})
+    return buttons or None
+
+
+def normalize_reply(data: Any) -> dict[str, Any]:
+    """Aceita string ou dict do seu Hermes e devolve o contrato padrão."""
+    if isinstance(data, str):
+        return {"text": data, "buttons": None, "narrate": True}
+    if isinstance(data, dict):
+        text = str(data.get("text") or data.get("reply") or data.get("message") or "")
+        return {
+            "text": text or "Pronto.",
+            "buttons": normalize_buttons(data.get("buttons") or data.get("options")),
+            "narrate": bool(data.get("narrate", True)),
+        }
+    return {"text": "Pronto.", "buttons": None, "narrate": True}
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: HTTP (seu Hermes expõe um endpoint)
+# ---------------------------------------------------------------------------
+
+async def _respond_http(payload: dict[str, Any]) -> dict[str, Any]:
+    if not config.HERMES_HTTP_URL:
+        return {"text": "HERMES_HTTP_URL não configurada.", "buttons": None, "narrate": False}
+    headers = {"Content-Type": "application/json"}
+    if config.HERMES_HTTP_AUTH:
+        headers["Authorization"] = config.HERMES_HTTP_AUTH
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(config.HERMES_HTTP_URL, headers=headers, json=payload)
+        resp.raise_for_status()
+        return normalize_reply(resp.json())
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: comando/CLI (seu Hermes é um script; troca JSON por stdin/stdout)
+# ---------------------------------------------------------------------------
+
+async def _respond_command(payload: dict[str, Any]) -> dict[str, Any]:
+    if not config.HERMES_COMMAND:
+        return {"text": "HERMES_COMMAND não configurada.", "buttons": None, "narrate": False}
+    proc = await asyncio.create_subprocess_shell(
+        config.HERMES_COMMAND,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate(json.dumps(payload).encode("utf-8"))
+    if proc.returncode != 0:
+        return {"text": f"Erro no Hermes (CLI): {err.decode('utf-8')[:300]}", "buttons": None, "narrate": False}
+    text = out.decode("utf-8").strip()
+    try:
+        return normalize_reply(json.loads(text))
+    except json.JSONDecodeError:
+        return normalize_reply(text)  # trata a saída como texto puro
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: Python (seu Hermes é um módulo: "pacote.modulo:funcao")
+# ---------------------------------------------------------------------------
+
+async def _respond_python(payload: dict[str, Any]) -> dict[str, Any]:
+    target = config.HERMES_PYTHON_TARGET
+    if not target or ":" not in target:
+        return {"text": "HERMES_PYTHON_TARGET inválida (use 'modulo:funcao').", "buttons": None, "narrate": False}
+    mod_name, func_name = target.split(":", 1)
+    module = importlib.import_module(mod_name)
+    func = getattr(module, func_name)
+    result = func(payload)
+    if asyncio.iscoroutine(result):
+        result = await result
+    return normalize_reply(result)
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: OpenRouter (default — conversa direto com a IA)
+# ---------------------------------------------------------------------------
+
 SYSTEM_PROMPT = """Você é o Hermes, o sistema operacional pessoal de inteligência do Maycon,
 acessado pela interface Continental (que substitui o Telegram).
-Você é operador, conselheiro e executor: não apenas responde — analisa o contexto,
-toma iniciativa e recomenda prioridades de forma objetiva e em português do Brasil.
-Trate o usuário com proximidade e foco (pode chamá-lo de "senhor" ocasionalmente, sem exagero).
+Você é operador, conselheiro e executor: analisa o contexto, toma iniciativa e
+recomenda prioridades de forma objetiva e em português do Brasil.
 
-Sempre que precisar de uma DECISÃO ou quiser oferecer caminhos, retorne botões de
-múltipla escolha pela ferramenta present_options (2 a 4 opções curtas). O texto da
-opção é o que o usuário enviará de volta ao tocar.
-Quando identificar que um assunto pertence a um projeto específico (ex.: Perfection
-Airsoft, App Barber, App Beleza), ofereça uma opção começando com "Abrir projeto: <nome>"."""
+Sempre que precisar de uma DECISÃO ou quiser oferecer caminhos, use a ferramenta
+present_options (2 a 4 opções curtas). O texto da opção é o que o usuário enviará
+de volta ao tocar. Se o assunto pertence a um projeto (Perfection Airsoft, App Barber,
+App Beleza), ofereça uma opção começando com "Abrir projeto: <nome>"."""
 
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "present_options",
-            "description": "Apresenta uma pergunta com botões de múltipla escolha. Resposta final: não chame outras ferramentas junto.",
+            "description": "Apresenta uma pergunta com botões de múltipla escolha. Resposta final.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "Pergunta/instrução acima dos botões"},
-                    "options": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "2 a 4 opções curtas e autoexplicativas",
-                    },
+                    "text": {"type": "string"},
+                    "options": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["text", "options"],
             },
@@ -80,28 +167,17 @@ TOOLS = [
 ]
 
 
-async def respond(
-    text: str,
-    history: list[dict[str, Any]],
-    settings: dict[str, Any],
-    project: Optional[str] = None,
-) -> dict[str, Any]:
-    """Gera a resposta do Hermes. Retorna {text, buttons, narrate}."""
-    model = choose_model(project, settings.get("preferred_model"))
+async def _respond_openrouter(payload: dict[str, Any]) -> dict[str, Any]:
+    settings = payload.get("settings") or {}
+    model = choose_model(payload.get("project"), settings.get("preferred_model"))
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in history:
-        messages.append(
-            {"role": "assistant" if m["role"] == "hermes" else "user", "content": m["text"]}
-        )
-    messages.append({"role": "user", "content": text})
+    for m in payload.get("history") or []:
+        messages.append({"role": "assistant" if m["role"] == "hermes" else "user", "content": m["text"]})
+    messages.append({"role": "user", "content": payload["text"]})
 
     if not config.OPENROUTER_API_KEY:
-        return {
-            "text": "OPENROUTER_API_KEY não configurada no backend. Configure o .env do servidor.",
-            "buttons": None,
-            "narrate": False,
-        }
+        return {"text": "OPENROUTER_API_KEY não configurada no backend.", "buttons": None, "narrate": False}
 
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
@@ -115,40 +191,49 @@ async def respond(
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(config.OPENROUTER_URL, headers=headers, json=body)
             if resp.status_code != 200:
-                return {
-                    "text": f"Não consegui falar com a IA agora ({resp.status_code}).",
-                    "buttons": None,
-                    "narrate": False,
-                }
+                return {"text": f"Não consegui falar com a IA ({resp.status_code}).", "buttons": None, "narrate": False}
             data = resp.json()
     except Exception as e:  # noqa: BLE001
         return {"text": f"Erro ao contatar a IA: {e}", "buttons": None, "narrate": False}
 
     choice = (data.get("choices") or [{}])[0].get("message", {})
-    tool_calls = choice.get("tool_calls") or []
-
-    for call in tool_calls:
+    for call in choice.get("tool_calls") or []:
         if call.get("function", {}).get("name") == "present_options":
-            import json
-
             try:
                 args = json.loads(call["function"].get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
-            options = args.get("options") or []
-            buttons = [
-                {
-                    "id": f"opt_{i}",
-                    "label": str(o),
-                    "action": str(o),
-                    "variant": "primary" if i == 0 else None,
-                }
-                for i, o in enumerate(options[:4])
-            ]
             return {
                 "text": args.get("text") or "Escolha uma opção:",
-                "buttons": buttons or None,
+                "buttons": normalize_buttons(args.get("options")),
                 "narrate": True,
             }
-
     return {"text": choice.get("content") or "Pronto.", "buttons": None, "narrate": True}
+
+
+# ---------------------------------------------------------------------------
+# Ponto único de integração
+# ---------------------------------------------------------------------------
+
+async def respond(
+    text: str,
+    history: list[dict[str, Any]],
+    settings: dict[str, Any],
+    project: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> dict[str, Any]:
+    payload = {
+        "text": text,
+        "history": history,
+        "settings": settings,
+        "project": project,
+        "user_id": user_id,
+    }
+    backend = config.HERMES_BACKEND
+    if backend == "http":
+        return await _respond_http(payload)
+    if backend == "command":
+        return await _respond_command(payload)
+    if backend == "python":
+        return await _respond_python(payload)
+    return await _respond_openrouter(payload)

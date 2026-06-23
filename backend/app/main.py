@@ -67,7 +67,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
             history = await supabase_store.recent_messages(user_id)
             settings = await supabase_store.get_settings(user_id)
-            reply = await hermes.respond(text, history, settings, project=project)
+            reply = await hermes.respond(text, history, settings, project=project, user_id=user_id)
 
             row = await supabase_store.insert_message(
                 user_id, "hermes", reply["text"], buttons=reply.get("buttons"), narrate=reply.get("narrate", True)
