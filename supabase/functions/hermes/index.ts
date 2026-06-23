@@ -42,10 +42,35 @@ const SYSTEM_PROMPT = `Você é o Hermes, um assistente operacional em portuguê
 Você ajuda o usuário a gerenciar tarefas e automações e responde perguntas de forma objetiva e amigável.
 Use as ferramentas disponíveis para AGIR de verdade (criar/concluir/adiar/priorizar tarefas, ligar/desligar automações) sempre que o usuário pedir algo acionável.
 Depois de agir, confirme o que foi feito em uma frase curta. Não invente dados que não estão no contexto.
-Quando fizer sentido, sugira de 2 a 3 próximas ações curtas.`;
+
+Sempre que precisar de uma DECISÃO, CONFIRMAÇÃO ou quiser oferecer caminhos claros ao usuário,
+use a ferramenta present_options para mostrar botões de múltipla escolha (2 a 4 opções curtas)
+em vez de só perguntar em texto. Ex.: "Qual prioridade?", "Confirmar?", "Qual modelo?".
+Cada opção deve ser uma resposta curta e autoexplicativa, pois o texto da opção é o que o usuário
+te enviará de volta ao tocar no botão.`;
 
 // Definição das ferramentas expostas à IA (formato OpenAI/OpenRouter).
 const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'present_options',
+      description:
+        'Apresenta ao usuário uma pergunta com botões de múltipla escolha. Use sempre que precisar de uma decisão/confirmação ou quiser oferecer caminhos claros. Esta é uma resposta final: NÃO chame outras ferramentas junto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'A pergunta ou instrução mostrada acima dos botões' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'De 2 a 4 opções curtas e autoexplicativas',
+          },
+        },
+        required: ['text', 'options'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -249,6 +274,7 @@ Deno.serve(async (req: Request) => {
 
     // Loop de tool-calling (até 4 rodadas).
     let finalText = '';
+    let buttonsOut: { id: string; label: string; action: string; variant?: string }[] = [];
     for (let i = 0; i < 4; i++) {
       const resp = await fetch(OPENROUTER_URL, {
         method: 'POST',
@@ -283,14 +309,31 @@ Deno.serve(async (req: Request) => {
         break;
       }
 
-      for (const call of toolCalls) {
-        let args: Record<string, unknown> = {};
+      const parseArgs = (call: SB): Record<string, unknown> => {
         try {
-          args = JSON.parse(call.function.arguments || '{}');
+          return JSON.parse(call.function.arguments || '{}');
         } catch {
-          args = {};
+          return {};
         }
-        const result = await runTool(supabase, user.id, call.function.name, args);
+      };
+
+      // present_options é uma resposta final: monta os botões de múltipla escolha e encerra.
+      const optionCall = toolCalls.find((c: SB) => c.function.name === 'present_options');
+      if (optionCall) {
+        const args = parseArgs(optionCall);
+        finalText = (args.text as string) ?? 'Escolha uma opção:';
+        const options = Array.isArray(args.options) ? (args.options as unknown[]) : [];
+        buttonsOut = options.slice(0, 4).map((o, idx) => ({
+          id: `opt_${idx}`,
+          label: String(o),
+          action: String(o),
+          variant: idx === 0 ? 'primary' : undefined,
+        }));
+        break;
+      }
+
+      for (const call of toolCalls) {
+        const result = await runTool(supabase, user.id, call.function.name, parseArgs(call));
         messages.push({ role: 'tool', tool_call_id: call.id, content: result });
       }
     }
@@ -299,7 +342,13 @@ Deno.serve(async (req: Request) => {
 
     await supabase
       .from('messages')
-      .insert({ user_id: user.id, role: 'hermes', text: finalText, narrate: true });
+      .insert({
+        user_id: user.id,
+        role: 'hermes',
+        text: finalText,
+        buttons: buttonsOut.length ? buttonsOut : null,
+        narrate: true,
+      });
 
     return json({ ok: true });
   } catch (e) {
