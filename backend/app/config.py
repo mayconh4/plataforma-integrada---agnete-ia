@@ -23,15 +23,30 @@ OPENROUTER_API_KEY = _req("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # --- Onde está o "cérebro" do Hermes ---
-# "openrouter" (default): este backend conversa direto com a IA via OpenRouter.
-# "http":    chama o SEU Hermes local por HTTP (HERMES_HTTP_URL).
-# "command": executa o SEU Hermes como script/CLI (HERMES_COMMAND), JSON via stdin/stdout.
-# "python":  importa e chama uma função do SEU Hermes (HERMES_PYTHON_TARGET, ex.: "meu_hermes:responder").
-HERMES_BACKEND = os.environ.get("HERMES_BACKEND", "openrouter").strip().lower()
+# "hermes_api" (default): fala com o Hermes Agent via gateway API Server
+#               (`hermes gateway run --platform api-server`, POST /chat). MESMO núcleo
+#               do Telegram: tools, skills, memória; o Hermes decide o modelo.
+# "hermes_cli": Hermes em one-shot (`hermes -z "<msg>"`) — bom para teste rápido.
+# "http":     chama um Hermes próprio por HTTP (HERMES_HTTP_URL).
+# "command":  executa um script/CLI próprio (HERMES_COMMAND), JSON via stdin/stdout.
+# "python":   importa e chama uma função (HERMES_PYTHON_TARGET, ex.: "meu_hermes:responder").
+# "openrouter": fallback — este backend conversa direto com a IA via OpenRouter.
+HERMES_BACKEND = os.environ.get("HERMES_BACKEND", "hermes_api").strip().lower()
+
+# (hermes_api) URL base do gateway API Server do Hermes.
+HERMES_API_URL = os.environ.get("HERMES_API_URL", "http://localhost:8080").strip().rstrip("/")
 HERMES_HTTP_URL = os.environ.get("HERMES_HTTP_URL", "").strip()
 HERMES_HTTP_AUTH = os.environ.get("HERMES_HTTP_AUTH", "").strip()  # valor do header Authorization (opcional)
 HERMES_COMMAND = os.environ.get("HERMES_COMMAND", "").strip()
 HERMES_PYTHON_TARGET = os.environ.get("HERMES_PYTHON_TARGET", "").strip()
+
+# (hermes_cli) Hermes Agent em one-shot: `hermes -z "<msg>"`
+HERMES_CLI_BIN = os.environ.get("HERMES_CLI_BIN", "hermes").strip()
+# Continuidade por usuário (resume a sessão por título). "1" liga.
+HERMES_CLI_CONTINUE = os.environ.get("HERMES_CLI_CONTINUE", "0").strip() == "1"
+HERMES_CLI_SESSION_PREFIX = os.environ.get("HERMES_CLI_SESSION_PREFIX", "continental").strip()
+# Timeout (s) — o agente tem tools, pode demorar.
+HERMES_CLI_TIMEOUT = int(os.environ.get("HERMES_CLI_TIMEOUT", "180"))
 
 # Servidor
 HOST = os.environ.get("HOST", "0.0.0.0")

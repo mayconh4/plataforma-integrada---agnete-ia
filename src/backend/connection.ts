@@ -10,6 +10,7 @@ export interface IncomingMessage {
   role: 'hermes';
   text: string;
   buttons?: unknown;
+  suggestions?: unknown;
   narrate?: boolean;
   created_at: string;
 }

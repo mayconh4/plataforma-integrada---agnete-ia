@@ -64,18 +64,85 @@ def normalize_buttons(raw: Any) -> Optional[list[dict[str, Any]]]:
     return buttons or None
 
 
+def _str_list(raw: Any) -> Optional[list[str]]:
+    if not raw or not isinstance(raw, list):
+        return None
+    out = [str(x) for x in raw if str(x).strip()]
+    return out or None
+
+
 def normalize_reply(data: Any) -> dict[str, Any]:
     """Aceita string ou dict do seu Hermes e devolve o contrato padrão."""
     if isinstance(data, str):
-        return {"text": data, "buttons": None, "narrate": True}
+        return {"text": data, "buttons": None, "suggestions": None, "narrate": True}
     if isinstance(data, dict):
         text = str(data.get("text") or data.get("reply") or data.get("message") or "")
         return {
             "text": text or "Pronto.",
             "buttons": normalize_buttons(data.get("buttons") or data.get("options")),
+            "suggestions": _str_list(data.get("suggestions")),
             "narrate": bool(data.get("narrate", True)),
         }
-    return {"text": "Pronto.", "buttons": None, "narrate": True}
+    return {"text": "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
+
+
+def _session_id(user_id: Optional[str]) -> str:
+    return f"{config.HERMES_CLI_SESSION_PREFIX}-{user_id or 'default'}"
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: Hermes API Server (RECOMENDADO) — `hermes gateway run --platform api-server`
+# Mesmo núcleo do Telegram (tools, skills, memória). POST /chat.
+# ---------------------------------------------------------------------------
+
+async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{config.HERMES_API_URL}/chat"
+    body = {
+        "message": payload["text"],
+        "session_id": _session_id(payload.get("user_id")),
+        "stream": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=config.HERMES_CLI_TIMEOUT) as client:
+            resp = await client.post(url, json=body)
+            if resp.status_code != 200:
+                return {
+                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway está rodando? `hermes gateway run --platform api-server`",
+                    "buttons": None,
+                    "suggestions": None,
+                    "narrate": False,
+                }
+            return normalize_reply(resp.json())
+    except Exception as e:  # noqa: BLE001
+        return {
+            "text": f"Não consegui falar com o Hermes (API Server): {e}. Verifique se o gateway está no ar.",
+            "buttons": None,
+            "suggestions": None,
+            "narrate": False,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Adaptador: Hermes CLI one-shot — `hermes -z "<msg>"` (mesmo cérebro; bom p/ teste)
+# ---------------------------------------------------------------------------
+
+async def _respond_hermes_cli(payload: dict[str, Any]) -> dict[str, Any]:
+    args = [config.HERMES_CLI_BIN, "-z", payload["text"]]
+    if config.HERMES_CLI_CONTINUE:
+        args += ["-c", _session_id(payload.get("user_id"))]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=config.HERMES_CLI_TIMEOUT)
+    except FileNotFoundError:
+        return {"text": f"Comando '{config.HERMES_CLI_BIN}' não encontrado no PATH.", "buttons": None, "suggestions": None, "narrate": False}
+    except asyncio.TimeoutError:
+        return {"text": "O Hermes demorou demais para responder.", "buttons": None, "suggestions": None, "narrate": False}
+    if proc.returncode != 0:
+        return {"text": f"Erro no Hermes (CLI): {err.decode('utf-8', 'ignore')[:300]}", "buttons": None, "suggestions": None, "narrate": False}
+    text = out.decode("utf-8", "ignore").strip()
+    return {"text": text or "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +297,10 @@ async def respond(
         "user_id": user_id,
     }
     backend = config.HERMES_BACKEND
+    if backend == "hermes_api":
+        return await _respond_hermes_api(payload)
+    if backend == "hermes_cli":
+        return await _respond_hermes_cli(payload)
     if backend == "http":
         return await _respond_http(payload)
     if backend == "command":

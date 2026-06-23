@@ -7,7 +7,9 @@ como interface humano↔agente.
 ```
 Celular (app Continental)
    ↓  WebSocket (Cloudflare Tunnel, grátis)
-Hermes / FastAPI (no seu PC)  →  escolhe a IA por projeto/agente (OpenRouter)
+Proxy FastAPI (no seu PC)  →  autentica (Supabase) e repassa
+   ↓  POST /chat
+Hermes Agent — gateway API Server (localhost:8080)  ← mesmo cérebro do Telegram
    ↓
 Supabase (banco: auth + histórico)
 ```
@@ -25,25 +27,33 @@ Supabase (banco: auth + histórico)
 
 > A `service_role key` é secreta — vai **só no backend** (seu PC), nunca no app.
 
-## 2. Backend (Hermes) — no seu computador
+## 2. Hermes Agent (o cérebro, já instalado) — modo API Server
+O Continental usa o **mesmo Hermes do Telegram** pelo gateway em modo API Server:
+```powershell
+hermes gateway run --platform api-server   # sobe em http://localhost:8080
+```
+> É o mesmo núcleo (tools, skills, memória); o próprio Hermes decide o modelo.
+
+## 3. Backend (proxy com login) — no seu computador
+Um proxy fino do Continental que autentica (Supabase) e repassa ao Hermes.
 Veja [`backend/README.md`](backend/README.md). Resumo:
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env     # preencha SUPABASE_*, OPENROUTER_API_KEY
+cp .env.example .env     # SUPABASE_* + HERMES_BACKEND=hermes_api + HERMES_API_URL=http://localhost:8080
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-O Hermes escolhe a IA por projeto/agente em `backend/app/hermes.py`
-(`MODEL_BY_PROJECT` / `choose_model`). Chave do OpenRouter: https://openrouter.ai/keys
+> O proxy protege o Hermes: só quem está logado (Supabase) chega no agente.
+> Para testar sem o gateway, use `HERMES_BACKEND=hermes_cli` ou `openrouter`.
 
-## 3. Expor o backend para o celular (Cloudflare Tunnel, grátis)
+## 4. Expor o backend para o celular (Cloudflare Tunnel, grátis)
 ```bash
 cloudflared tunnel --url http://localhost:8000
 ```
-Copie a URL pública e use a forma **wss** com `/ws` no app (passo 4).
+Copie a URL pública e use a forma **wss** com `/ws` no app (passo 5).
 
-## 4. App (Continental)
+## 5. App (Continental)
 ```bash
 cp .env.example .env
 ```

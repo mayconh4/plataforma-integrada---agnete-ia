@@ -40,10 +40,27 @@ O ponto de integração é `app/hermes.py` → `respond()`. Escolha em `.env`:
 
 | `HERMES_BACKEND` | Como funciona | Variáveis |
 |---|---|---|
-| `openrouter` (default) | este backend fala direto com a IA (ModelRouter) | `OPENROUTER_API_KEY` |
-| `http` | chama o seu Hermes por HTTP | `HERMES_HTTP_URL`, `HERMES_HTTP_AUTH?` |
-| `command` | executa seu Hermes (CLI), JSON via stdin/stdout | `HERMES_COMMAND` |
-| `python` | importa `modulo:funcao` do seu Hermes | `HERMES_PYTHON_TARGET` |
+| `hermes_api` (default) | fala com o **Hermes Agent** via gateway API Server (POST /chat) | `HERMES_API_URL` |
+| `hermes_cli` | Hermes em one-shot (`hermes -z`) — teste rápido | `HERMES_CLI_*` |
+| `http` | um Hermes próprio por HTTP | `HERMES_HTTP_URL`, `HERMES_HTTP_AUTH?` |
+| `command` | um script/CLI próprio, JSON via stdin/stdout | `HERMES_COMMAND` |
+| `python` | importa `modulo:funcao` | `HERMES_PYTHON_TARGET` |
+| `openrouter` | fallback: IA direta (ModelRouter) | `OPENROUTER_API_KEY` |
+
+### Recomendado: `hermes_api` (mesmo cérebro do Telegram)
+1. No PC, suba o gateway no modo API Server:
+   ```bash
+   hermes gateway run --platform api-server   # http://localhost:8080
+   ```
+2. Deixe `HERMES_BACKEND=hermes_api` e `HERMES_API_URL=http://localhost:8080` no `.env`.
+
+O FastAPI repassa cada mensagem para `POST {HERMES_API_URL}/chat`
+(`{message, session_id, stream:false}`) e devolve `text`, `buttons`, `suggestions`,
+`narrate`. A sessão é fixa por usuário (`continental-<user_id>`), mantendo o contexto.
+
+> Por que o FastAPI no meio (e não o app direto no 8080)? Para **autenticar** (login
+> Supabase) antes de chegar no Hermes — assim o túnel público não deixa seu agente
+> (que tem code_execution/computer_use) aberto a qualquer um com a URL.
 
 O backend manda este JSON ao seu Hermes:
 ```json

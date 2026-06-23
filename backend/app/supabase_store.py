@@ -36,10 +36,18 @@ async def insert_message(
     role: str,
     text: str,
     buttons: Optional[list[dict[str, Any]]] = None,
+    suggestions: Optional[list[str]] = None,
     narrate: bool = True,
 ) -> dict[str, Any]:
     url = f"{config.SUPABASE_URL}/rest/v1/messages"
-    payload = {"user_id": user_id, "role": role, "text": text, "buttons": buttons, "narrate": narrate}
+    payload = {
+        "user_id": user_id,
+        "role": role,
+        "text": text,
+        "buttons": buttons,
+        "suggestions": suggestions,
+        "narrate": narrate,
+    }
     headers = {**_rest_headers(), "Prefer": "return=representation"}
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(url, headers=headers, json=payload)

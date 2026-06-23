@@ -16,13 +16,19 @@ App (React Native / Expo SDK 56)
 
 Cloudflare Tunnel (grátis)  → expõe o FastAPI local como wss://...
 
-Hermes / FastAPI (no PC do Maycon)
-  ├─ WebSocket /ws  → recebe mensagem, decide a IA, responde
-  ├─ ModelRouter    → escolhe a IA por projeto/agente (OpenRouter)
+Proxy FastAPI (no PC do Maycon)
+  ├─ WebSocket /ws  → autentica (Supabase) e repassa ao Hermes
+  ├─ HERMES_BACKEND=hermes_api → POST http://localhost:8080/chat
   └─ persiste no Supabase (messages)
+
+Hermes Agent — gateway API Server (`hermes gateway run --platform api-server`)
+  → MESMO núcleo do Telegram: tools, skills, memória; o Hermes decide o modelo
 
 Supabase  → Postgres + Auth + RLS (banco e histórico; NÃO é o cérebro)
 ```
+
+> O proxy existe para **autenticar** antes de chegar no Hermes (que tem
+> code_execution/computer_use) — o túnel público não fica aberto a qualquer um.
 
 ## Fluxo de uma mensagem
 1. App envia `{type:"user_message", text, project?}` pelo WS.

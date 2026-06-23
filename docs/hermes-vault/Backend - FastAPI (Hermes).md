@@ -17,13 +17,15 @@ Cloudflare Tunnel (grátis).
 - `backend/app/config.py` — env (.env).
 - `backend/README.md` — como rodar + Cloudflare Tunnel.
 
-## ModelRouter (o Hermes escolhe a IA)
-Em `hermes.py`:
-- `MODEL_BY_PROJECT` — modelo por projeto (ex.: perfection_airsoft → claude).
-- `MODEL_BY_PREFERENCE` — fallback pela preferência do usuário.
-- `choose_model(project, preferred)` — projeto > preferência > `DEFAULT_MODEL`.
+## Conexão com o Hermes (HERMES_BACKEND)
+`respond()` despacha conforme `HERMES_BACKEND`:
+- **`hermes_api`** (padrão) → `POST {HERMES_API_URL}/chat` do gateway API Server
+  (`hermes gateway run --platform api-server`). MESMO cérebro do Telegram.
+- `hermes_cli` → `hermes -z "<msg>"` (one-shot, teste rápido).
+- `http` / `command` / `python` → Hermes próprio.
+- `openrouter` → fallback (ModelRouter: `MODEL_BY_PROJECT`, `choose_model`).
 
-> É aqui que pluga o Hermes "real" no futuro: troque o corpo de `respond()`.
+Sessão fixa por usuário (`continental-<user_id>`) mantém o contexto no Hermes.
 
 ## Protocolo WebSocket
 - App → server: `{type:"user_message", text, project?}`
