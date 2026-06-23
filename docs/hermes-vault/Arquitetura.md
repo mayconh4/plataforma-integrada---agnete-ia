@@ -1,32 +1,39 @@
 ---
 title: Arquitetura
-tags: [hermes, arquitetura]
+tags: [continental, arquitetura]
 created: 2026-06-23
+updated: 2026-06-23
 ---
 
-# 🏗️ Arquitetura
+# 🏗️ Arquitetura (Continental)
 
 ```
 App (React Native / Expo SDK 56)
   ├─ Login por senha (Supabase Auth)
-  ├─ Envia mensagem → invoca a Edge Function "hermes"
-  ├─ Realtime: ouve messages/tasks/automations/settings → atualiza a tela na hora
-  └─ Push token registrado em push_tokens (após login)
+  ├─ Conecta no Hermes via WebSocket (?token=<jwt do Supabase>)
+  ├─ Voz: STT (expo-speech-recognition) + TTS (expo-speech)
+  └─ Botões dinâmicos + navegação de projetos
 
-Supabase
-  ├─ Postgres + RLS (dados isolados por usuário via auth.uid())
-  ├─ Realtime (websocket)
-  ├─ Edge Function "hermes"     → OpenRouter (IA) + tool-calling → age no banco
-  └─ Edge Function "scheduler"  → pg_cron (1/min) → automações no horário,
-                                   tarefas adiadas vencidas → mensagem + push (Expo)
+Cloudflare Tunnel (grátis)  → expõe o FastAPI local como wss://...
+
+Hermes / FastAPI (no PC do Maycon)
+  ├─ WebSocket /ws  → recebe mensagem, decide a IA, responde
+  ├─ ModelRouter    → escolhe a IA por projeto/agente (OpenRouter)
+  └─ persiste no Supabase (messages)
+
+Supabase  → Postgres + Auth + RLS (banco e histórico; NÃO é o cérebro)
 ```
 
 ## Fluxo de uma mensagem
-1. App insere/!invoca → `hermes` grava a mensagem do usuário.
-2. `hermes` carrega contexto (tarefas, automações, histórico) e chama a IA.
-3. A IA pode chamar ferramentas (criar tarefa, etc.) ou `present_options` (botões).
-4. `hermes` grava a resposta (com `buttons` quando houver).
-5. O **Realtime** entrega as novas linhas ao app → UI atualiza.
+1. App envia `{type:"user_message", text, project?}` pelo WS.
+2. FastAPI persiste a msg, responde `{type:"thinking"}`.
+3. Hermes escolhe o modelo (projeto > preferência > default) e chama a IA.
+4. Se precisa de decisão → `present_options` → botões.
+5. FastAPI persiste a resposta e envia `{type:"message", message:{...}}`.
+
+## Decisão importante
+O **cérebro é local** (FastAPI/Hermes), não uma Edge Function. O Supabase é só
+o banco. Transporte = WebSocket via Cloudflare Tunnel (grátis, sem VPS).
 
 ## Relacionadas
-- [[Backend - Supabase]] · [[Edge Function - hermes]] · [[Edge Function - scheduler]] · [[App - Estrutura]]
+- [[Backend - FastAPI (Hermes)]] · [[Backend - Supabase]] · [[App - Estrutura]]

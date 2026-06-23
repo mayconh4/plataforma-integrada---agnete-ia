@@ -1,47 +1,41 @@
 ---
 title: Setup — Passo a Passo
-tags: [hermes, setup]
+tags: [continental, setup]
 created: 2026-06-23
-fonte: SETUP.md (na raiz do repo)
+updated: 2026-06-23
+fonte: SETUP.md (raiz) e backend/README.md
 ---
 
 # 🚀 Setup — Passo a Passo
 
-> Versão resumida. O detalhado está em `SETUP.md` na raiz do repositório.
+> Detalhado em `SETUP.md` (raiz) e `backend/README.md`.
 
-## 1. App
-- `cp .env.example .env` e preencher `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-  (Supabase → Project Settings → API).
+## 1. Supabase
+- Rodar `supabase/migrations/0001_init.sql`.
+- Auth → Email → desativar *Confirm email*.
+- Copiar `Project URL`, `anon key`, `service_role key`.
 
-## 2. Banco
-- Rodar `supabase/migrations/0001_init.sql` no SQL Editor.
-- Rodar `supabase/migrations/0002_scheduling_push.sql`.
-
-## 3. Login por senha
-- Authentication → Providers → Email → **desativar "Confirm email"** (entra na hora).
-
-## 4. IA (Edge Function hermes)
+## 2. Backend (Hermes, no PC)
 ```bash
-supabase login
-supabase link --project-ref SEU_PROJECT_REF
-supabase secrets set OPENROUTER_API_KEY=sk-or-v1-xxxx
-supabase functions deploy hermes
+cd backend && python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && cp .env.example .env   # preencher SUPABASE_*, OPENROUTER_API_KEY
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## 5. Push + automações agendadas
+## 3. Túnel (grátis)
 ```bash
-eas init                         # gera projectId
-# configurar FCM nas credenciais do EAS (Android)
-supabase functions deploy scheduler
-supabase secrets set CRON_SECRET=$(openssl rand -hex 24)
-# rodar supabase/scheduler_cron.sql (trocar PROJECT_REF e CRON_SECRET)
+cloudflared tunnel --url http://localhost:8000
 ```
 
-## 6. Rodar
+## 4. App
+```
+EXPO_PUBLIC_SUPABASE_URL=...
+EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+EXPO_PUBLIC_HERMES_WS_URL=wss://....trycloudflare.com/ws
+```
 ```bash
-npm install
-npx expo start            # ou: eas build -p android --profile preview
+npm install && npx expo start     # ou eas build -p android --profile preview
 ```
 
 ## Relacionadas
-- [[Edge Function - hermes]] · [[Edge Function - scheduler]] · [[Próximos Passos]]
+- [[Backend - FastAPI (Hermes)]] · [[Próximos Passos]]

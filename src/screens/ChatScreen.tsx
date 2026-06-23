@@ -9,23 +9,35 @@ import {
   TouchableOpacity,
   Text,
   SafeAreaView,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage } from '../types/chat';
 import { useHermes } from '../backend/useHermes';
-import { pressSuggestion, sendMessage, signOut } from '../backend/store';
+import { closeProject, openProject, pressSuggestion, sendMessage, signOut } from '../backend/store';
 import { speak } from '../services/voiceService';
+import { useVoiceInput } from '../services/speech';
 import { colors } from '../theme/colors';
 
+const statusLabel: Record<string, string> = {
+  idle: 'Conectando…',
+  connecting: 'Conectando…',
+  online: 'Online',
+  offline: 'Offline',
+};
+
 export function ChatScreen() {
-  const { messages, sending } = useHermes();
+  const { messages, thinking, status, activeProject } = useHermes();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const lastSpokenId = useRef<string | null>(null);
+  const pulse = useRef(new Animated.Value(1)).current;
 
-  // Narra a última mensagem do Hermes quando ela muda.
+  const { listening, partial, start, stop } = useVoiceInput((t) => sendMessage(t));
+
+  // Narra a última mensagem do Hermes.
   useEffect(() => {
     const last = messages[messages.length - 1];
     if (last && last.role === 'hermes' && last.narrate && last.id !== lastSpokenId.current) {
@@ -37,16 +49,45 @@ export function ChatScreen() {
     }
   }, [messages]);
 
+  // Animação de pulso no microfone enquanto ouve.
+  useEffect(() => {
+    if (listening) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1.18, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+    pulse.setValue(1);
+  }, [listening, pulse]);
+
   const handleSend = () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-    void sendMessage(text);
+    sendMessage(text);
   };
 
   const onButtonPress = (_action: string, label: string) => {
-    void sendMessage(label);
+    const m = label.match(/^abrir projeto:\s*(.+)$/i);
+    if (m) {
+      openProject(m[1].trim());
+      return;
+    }
+    sendMessage(label);
   };
+
+  const toggleMic = () => {
+    if (listening) stop();
+    else void start();
+  };
+
+  const isEmpty = messages.length === 0;
+  const statusColor =
+    status === 'online' ? colors.accent : status === 'offline' ? colors.danger : '#F5A623';
 
   return (
     <LinearGradient
@@ -57,7 +98,6 @@ export function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
         >
           {/* Header */}
           <View style={styles.header}>
@@ -65,58 +105,81 @@ export function ChatScreen() {
               <Text style={styles.headerIcon}>⚡</Text>
               <View>
                 <Text style={styles.headerTitle}>Hermes</Text>
-                <Text style={styles.headerSubtitle}>{sending ? 'digitando…' : 'Online'}</Text>
+                <View style={styles.statusRow}>
+                  <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                  <Text style={styles.headerSubtitle}>
+                    {thinking ? 'pensando…' : statusLabel[status] ?? 'Online'}
+                  </Text>
+                </View>
               </View>
             </View>
             <View style={styles.headerRight}>
               <VoiceToggle />
-              <TouchableOpacity onPress={() => void signOut()} style={styles.signOut}>
-                <Text style={styles.signOutText}>Sair</Text>
+              <TouchableOpacity onPress={() => void signOut()} style={styles.iconBtn}>
+                <Text style={styles.iconBtnText}>Sair</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Messages */}
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ChatBubble
-                message={item}
-                onButtonPress={onButtonPress}
-                onSuggestionPress={pressSuggestion}
-              />
-            )}
-            style={styles.messageList}
-            contentContainerStyle={styles.messageListContent}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            ListFooterComponent={
-              sending ? (
-                <View style={styles.typing}>
-                  <Text style={styles.typingText}>Hermes está digitando…</Text>
-                </View>
-              ) : null
-            }
-          />
+          {/* Banner do projeto ativo */}
+          {activeProject ? (
+            <View style={styles.projectBanner}>
+              <Text style={styles.projectText}>📂 Projeto: {activeProject}</Text>
+              <TouchableOpacity onPress={closeProject}>
+                <Text style={styles.projectClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
-          {/* Input */}
+          {/* Centro de comando vazio (hero) */}
+          {isEmpty ? (
+            <View style={styles.hero}>
+              <Text style={styles.heroTitle}>Bom te ver.</Text>
+              <Text style={styles.heroPrompt}>O que temos para hoje?</Text>
+            </View>
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <ChatBubble message={item} onButtonPress={onButtonPress} onSuggestionPress={pressSuggestion} />
+              )}
+              style={styles.messageList}
+              contentContainerStyle={styles.messageListContent}
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              ListFooterComponent={
+                thinking ? <Text style={styles.typing}>Hermes está pensando…</Text> : null
+              }
+            />
+          )}
+
+          {/* Barra de entrada: microfone grande + texto */}
           <View style={styles.inputBar}>
+            <Animated.View style={{ transform: [{ scale: pulse }] }}>
+              <TouchableOpacity
+                onPress={toggleMic}
+                style={[styles.mic, listening && styles.micActive]}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.micIcon}>{listening ? '■' : '🎙️'}</Text>
+              </TouchableOpacity>
+            </Animated.View>
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
-                placeholder="Pergunte ou peça algo ao Hermes..."
+                placeholder={listening ? 'Ouvindo…' : 'Fale ou digite para o Hermes...'}
                 placeholderTextColor={colors.textMuted}
-                value={inputText}
+                value={listening ? partial : inputText}
                 onChangeText={setInputText}
                 onSubmitEditing={handleSend}
                 returnKeyType="send"
-                editable={!sending}
+                editable={!listening}
               />
               <TouchableOpacity
                 onPress={handleSend}
                 style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]}
-                disabled={!inputText.trim() || sending}
+                disabled={!inputText.trim()}
               >
                 <Text style={styles.sendIcon}>↑</Text>
               </TouchableOpacity>
@@ -145,26 +208,64 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerIcon: { fontSize: 28 },
   headerTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
-  headerSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.5 },
-  signOut: {
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  headerSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.3 },
+  iconBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  signOutText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  iconBtnText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  projectBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: colors.primaryGlow,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  projectText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  projectClose: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  heroTitle: { color: colors.textMuted, fontSize: 16, marginBottom: 6 },
+  heroPrompt: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', textAlign: 'center' },
   messageList: { flex: 1 },
   messageListContent: { paddingVertical: 12 },
-  typing: { paddingHorizontal: 24, paddingVertical: 8 },
-  typingText: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic' },
+  typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 24, paddingVertical: 8 },
   inputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
+  mic: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primaryGlow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  micActive: { backgroundColor: colors.danger },
+  micIcon: { fontSize: 22 },
   inputContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',

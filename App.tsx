@@ -26,9 +26,10 @@ export default function App() {
       <Centered>
         <Text style={styles.title}>Configuração necessária</Text>
         <Text style={styles.body}>
-          Crie um arquivo <Text style={styles.code}>.env</Text> com as variáveis{'\n'}
-          <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_URL</Text> e{'\n'}
-          <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text>,{'\n'}
+          Crie um arquivo <Text style={styles.code}>.env</Text> com:{'\n'}
+          <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_URL</Text>{'\n'}
+          <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text>{'\n'}
+          <Text style={styles.code}>EXPO_PUBLIC_HERMES_WS_URL</Text>{'\n'}
           depois reinicie o app. Veja o SETUP.md.
         </Text>
       </Centered>

@@ -22,6 +22,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-notifications"]
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "O Continental usa o microfone para você falar com o Hermes.",
+          "speechRecognitionPermission": "O Continental usa reconhecimento de voz para entender seus comandos."
+        }
+      ]
+    ]
   }
 }

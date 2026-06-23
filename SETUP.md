@@ -1,153 +1,77 @@
-# Hermes — Setup (online com Supabase + OpenRouter)
+# Continental — Setup
 
-O Hermes agora roda **online**: o app é o cliente, o **Supabase** guarda os dados
-(com Realtime para sincronizar em tempo real) e uma **Edge Function** usa a IA via
-**OpenRouter** para responder e agir sobre suas tarefas/automações.
+**Continental** é a interface premium (app Android) que conecta o **Maycon** ao
+**Hermes** — o agente de IA que roda **no seu computador**. Substitui o Telegram
+como interface humano↔agente.
 
-Siga os passos abaixo **uma vez** para colocar de pé.
+```
+Celular (app Continental)
+   ↓  WebSocket (Cloudflare Tunnel, grátis)
+Hermes / FastAPI (no seu PC)  →  escolhe a IA por projeto/agente (OpenRouter)
+   ↓
+Supabase (banco: auth + histórico)
+```
+
+> **Fase 1 (núcleo):** Home centro de comando, conversa por texto e voz,
+> botões dinâmicos, respostas narradas, navegação para projetos.
+> Sem push/automações ainda.
 
 ---
 
-## 1. Variáveis de ambiente do app
+## 1. Supabase (banco + login)
+1. Crie o projeto (já feito) e rode `supabase/migrations/0001_init.sql` no SQL Editor.
+2. **Auth → Providers → Email**: desative *Confirm email* (login por senha entra na hora).
+3. Em **Project Settings → API**, copie: `Project URL`, `anon key` e `service_role key`.
 
-Copie `.env.example` para `.env` e preencha com os dados do seu projeto
-(Supabase → **Project Settings → API**):
+> A `service_role key` é secreta — vai **só no backend** (seu PC), nunca no app.
 
+## 2. Backend (Hermes) — no seu computador
+Veja [`backend/README.md`](backend/README.md). Resumo:
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env     # preencha SUPABASE_*, OPENROUTER_API_KEY
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+O Hermes escolhe a IA por projeto/agente em `backend/app/hermes.py`
+(`MODEL_BY_PROJECT` / `choose_model`). Chave do OpenRouter: https://openrouter.ai/keys
+
+## 3. Expor o backend para o celular (Cloudflare Tunnel, grátis)
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+Copie a URL pública e use a forma **wss** com `/ws` no app (passo 4).
+
+## 4. App (Continental)
 ```bash
 cp .env.example .env
 ```
-
 ```
 EXPO_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...   # anon / public key (pode ir no app)
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+EXPO_PUBLIC_HERMES_WS_URL=wss://SEU-TUNNEL.trycloudflare.com/ws
 ```
-
-> A `anon key` é publicável — quem protege os dados é o RLS (Row Level Security),
-> que a migration configura. **Nunca** coloque a `service_role key` no app.
-
----
-
-## 2. Criar as tabelas (schema + RLS + realtime)
-
-No Supabase, abra **SQL Editor**, cole o conteúdo de
-[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) e execute.
-
-Isso cria as tabelas `settings`, `tasks`, `automations`, `messages`, ativa RLS por
-usuário, publica tudo no Realtime e cria um gatilho que popula dados de exemplo +
-mensagem de boas-vindas quando um novo usuário se cadastra.
-
----
-
-## 3. Login por senha
-
-Em **Authentication → Providers → Email**, mantenha o provedor **Email** ligado.
-Para que o cadastro/login por senha funcione **na hora** (sem caixa de e-mail),
-**desative** a opção *"Confirm email"*. (Se preferir manter, o usuário precisará
-confirmar o e-mail antes do primeiro login.)
-
----
-
-## 4. Edge Function `hermes` (o cérebro com IA)
-
-Precisa da [Supabase CLI](https://supabase.com/docs/guides/cli):
-
-```bash
-# 1. Login e link com o projeto (pega o ref em Project Settings → General)
-supabase login
-supabase link --project-ref SEU_PROJECT_REF
-
-# 2. Configure a chave do OpenRouter como secret (NUNCA vai pro app)
-supabase secrets set OPENROUTER_API_KEY=sk-or-v1-xxxxxxxx
-
-# 3. Deploy da função
-supabase functions deploy hermes
-```
-
-> Pegue a chave em https://openrouter.ai/keys (a OpenRouter cobra por uso/token).
-
-### Escolha de modelo
-O modelo usado vem de `settings.preferred_model` e é mapeado em
-`supabase/functions/hermes/index.ts` (`MODEL_MAP`). Os slugs padrão:
-
-| preferred_model | OpenRouter slug |
-|---|---|
-| claude   | `anthropic/claude-3.5-sonnet` |
-| gpt      | `openai/gpt-4o-mini` |
-| gemini   | `google/gemini-flash-1.5` |
-| deepseek | `deepseek/deepseek-chat` |
-| local    | `meta-llama/llama-3.1-8b-instruct` |
-
-Confira os slugs atuais em https://openrouter.ai/models e ajuste se quiser outro modelo.
-
----
-
-## 5. Rodar o app
-
 ```bash
 npm install
-npx expo start            # dev (Expo Go / dev client)
+npx expo start            # dev build (a voz/STT não funciona no Expo Go)
+# ou: eas build -p android --profile preview
 ```
 
-Ou gerar o APK:
-
-```bash
-eas build -p android --profile preview
-```
-
-Na primeira vez: **Cadastre-se** com e-mail + senha → o Hermes já abre com dados de
-exemplo e responde via IA. Tudo o que você pedir (criar tarefa, concluir, adiar,
-priorizar, ligar/desligar automação) é executado de verdade no banco e aparece em
-tempo real.
+> **Voz (STT)** usa `expo-speech-recognition` — precisa de **dev build/APK**
+> (não funciona no Expo Go). O microfone aparece na barra inferior.
 
 ---
 
-## 6. Push notifications + automações agendadas (app fechado)
+## Fluxo de uso
+1. Abra o app → **centro de comando** ("O que temos para hoje?").
+2. Fale (botão de microfone) ou digite. O Hermes responde (e narra, se a voz estiver ligada).
+3. Quando o Hermes oferecer **botões**, toque para responder rápido.
+4. Se ele sugerir **"Abrir projeto: X"**, o app entra no contexto daquele projeto
+   (as próximas mensagens vão com esse contexto, e o Hermes pode usar outra IA).
 
-Faz o servidor agir **mesmo com o app fechado**: dispara automações no horário,
-reativa tarefas adiadas e envia **push** ao usuário.
-
-### 6.1. Aplicar a 2ª migration
-No SQL Editor, rode [`supabase/migrations/0002_scheduling_push.sql`](supabase/migrations/0002_scheduling_push.sql).
-Cria a tabela `push_tokens`, adiciona o agendamento estruturado das automações
-(hora/minuto/dias, em **America/Sao_Paulo**) e habilita as extensões `pg_cron` e `pg_net`.
-
-### 6.2. Credenciais de push (Android = FCM)
-Push remoto **não funciona no Expo Go** — precisa de um **dev build** ou do **APK (EAS)**.
-
-```bash
-eas init        # gera o projectId (vai para app.json -> extra.eas.projectId)
-```
-
-Para Android, configure o **FCM** nas credenciais do EAS (necessário p/ push):
-veja https://docs.expo.dev/push-notifications/fcm-credentials/ . Depois de logar no
-app (num dev build/APK), o token de push é salvo automaticamente em `push_tokens`.
-
-### 6.3. Deploy do scheduler + cron
-```bash
-supabase functions deploy scheduler
-supabase secrets set CRON_SECRET=$(openssl rand -hex 24)   # guarde esse valor
-```
-Agora agende a execução: abra [`supabase/scheduler_cron.sql`](supabase/scheduler_cron.sql),
-substitua `<PROJECT_REF>` e `<CRON_SECRET>` (o MESMO do passo acima) e rode no SQL Editor.
-O cron passa a chamar a função `scheduler` **a cada minuto**.
-
-> Teste rápido: crie uma automação com horário daqui a 1–2 min (ou peça ao Hermes
-> "adie minhas tarefas por 1 minuto") e aguarde — deve chegar uma push e uma mensagem.
-
----
-
-## Arquitetura (resumo)
-
-```
-App (React Native)
-  ├─ login por senha (Supabase Auth)
-  ├─ insere mensagem -> chama Edge Function "hermes"
-  └─ Realtime: ouve messages/tasks/automations/settings (atualiza a tela na hora)
-
-Supabase
-  ├─ Postgres + RLS (dados isolados por usuário)
-  ├─ Realtime (websocket)
-  ├─ Edge Function "hermes"      -> OpenRouter (IA) + tool-calling -> age no banco
-  └─ Edge Function "scheduler"   -> pg_cron (1/min) -> automações no horário,
-                                    tarefas adiadas vencidas -> mensagem + push (Expo)
-```
+## Estrutura do repo
+- `App.tsx`, `src/screens/`, `src/components/`, `src/backend/`, `src/services/` — app.
+- `backend/` — FastAPI (Hermes local) + WebSocket.
+- `supabase/migrations/0001_init.sql` — schema + RLS.
+- `docs/hermes-vault/` — documentação em formato Obsidian.

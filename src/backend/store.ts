@@ -1,45 +1,50 @@
-import type { RealtimeChannel, Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { ChatMessage } from '../types/chat';
-import { Automation, Settings, Task } from './types';
+import { Settings } from './types';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
-import { registerPushToken } from '../services/notifications';
+import {
+  ConnStatus,
+  IncomingMessage,
+  configure as configureConn,
+  connect as connectWs,
+  disconnect as disconnectWs,
+  isHermesConfigured,
+  send as wsSend,
+} from './connection';
 
 // ---------------------------------------------------------------------------
-// Estado da UI (espelha o backend Supabase + sessão de auth)
+// Estado da UI
 // ---------------------------------------------------------------------------
 
 export interface HermesUiState {
-  configured: boolean;
-  ready: boolean; // sessão já verificada
-  loading: boolean; // carregando dados do usuário
-  sending: boolean; // aguardando resposta da IA
+  configured: boolean; // supabase + url do hermes
+  ready: boolean; // sessão verificada
   session: Session | null;
   authError: string | null;
+  status: ConnStatus; // conexão com o Hermes
+  thinking: boolean; // Hermes processando
   messages: ChatMessage[];
-  tasks: Task[];
-  automations: Automation[];
   settings: Settings;
+  activeProject: string | null; // projeto aberto (navegação)
 }
 
 const defaultSettings: Settings = { voiceEnabled: true, preferredModel: 'claude' };
 
 let state: HermesUiState = {
-  configured: isSupabaseConfigured,
+  configured: isSupabaseConfigured && isHermesConfigured,
   ready: false,
-  loading: false,
-  sending: false,
   session: null,
   authError: null,
+  status: 'idle',
+  thinking: false,
   messages: [],
-  tasks: [],
-  automations: [],
   settings: defaultSettings,
+  activeProject: null,
 };
 
 const listeners = new Set<() => void>();
 let initialized = false;
-let channel: RealtimeChannel | null = null;
-let loadedUserId: string | null = null;
+let connectedUserId: string | null = null;
 
 function set(partial: Partial<HermesUiState>): void {
   state = { ...state, ...partial };
@@ -57,9 +62,10 @@ export function subscribe(listener: () => void): () => void {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Mapeamento linha do banco -> tipos do app
-// ---------------------------------------------------------------------------
+let idCounter = 0;
+function localId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${(++idCounter).toString(36)}`;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function toMessage(r: any): ChatMessage {
@@ -67,148 +73,67 @@ function toMessage(r: any): ChatMessage {
     id: r.id,
     role: r.role,
     text: r.text,
-    timestamp: new Date(r.created_at).getTime(),
+    timestamp: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
     buttons: r.buttons ?? undefined,
     suggestions: r.suggestions ?? undefined,
     narrate: r.narrate ?? false,
   };
 }
-
-function toTask(r: any): Task {
-  return {
-    id: r.id,
-    title: r.title,
-    priority: r.priority,
-    status: r.status,
-    createdAt: new Date(r.created_at).getTime(),
-    updatedAt: new Date(r.updated_at).getTime(),
-    deferUntil: r.defer_until ? new Date(r.defer_until).getTime() : undefined,
-  };
-}
-
-function toAutomation(r: any): Automation {
-  return {
-    id: r.id,
-    name: r.name,
-    trigger: r.trigger,
-    enabled: r.enabled,
-    runs: r.runs,
-    createdAt: new Date(r.created_at).getTime(),
-  };
-}
-
-function toSettings(r: any): Settings {
-  return { voiceEnabled: r.voice_enabled, preferredModel: r.preferred_model };
-}
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-function sortMessages(list: ChatMessage[]): ChatMessage[] {
-  return [...list].sort((a, b) => a.timestamp - b.timestamp);
-}
-
-function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
-  const idx = list.findIndex((x) => x.id === item.id);
-  if (idx === -1) return [...list, item];
-  const next = [...list];
-  next[idx] = item;
-  return next;
+function appendMessage(msg: ChatMessage): void {
+  set({ messages: [...state.messages, msg] });
 }
 
 // ---------------------------------------------------------------------------
-// Carga inicial + realtime
+// Conexão com o Hermes (WebSocket)
 // ---------------------------------------------------------------------------
 
-async function loadData(userId: string): Promise<void> {
-  set({ loading: true });
-  const [msgs, tasks, autos, settings] = await Promise.all([
-    supabase.from('messages').select('*').order('created_at', { ascending: true }),
-    supabase.from('tasks').select('*').order('created_at', { ascending: true }),
-    supabase.from('automations').select('*').order('created_at', { ascending: true }),
-    supabase.from('settings').select('*').eq('user_id', userId).single(),
-  ]);
+configureConn({
+  onStatus: (s) => set({ status: s }),
+  onThinking: () => set({ thinking: true }),
+  onMessage: (m: IncomingMessage) => {
+    set({ thinking: false });
+    appendMessage(toMessage(m));
+  },
+});
 
-  set({
-    loading: false,
-    messages: (msgs.data ?? []).map(toMessage),
-    tasks: (tasks.data ?? []).map(toTask),
-    automations: (autos.data ?? []).map(toAutomation),
-    settings: settings.data ? toSettings(settings.data) : defaultSettings,
-  });
+async function loadHistory(userId: string): Promise<void> {
+  const { data } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(200);
+  set({ messages: (data ?? []).map(toMessage) });
 }
 
-function subscribeRealtime(userId: string): void {
-  channel = supabase
-    .channel(`hermes:${userId}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'messages', filter: `user_id=eq.${userId}` },
-      (payload) => {
-        if (payload.eventType === 'DELETE') return;
-        const msg = toMessage(payload.new);
-        set({ messages: sortMessages(upsertById(state.messages, msg)) });
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
-      (payload) => {
-        if (payload.eventType === 'DELETE') {
-          set({ tasks: state.tasks.filter((t) => t.id !== (payload.old as { id: string }).id) });
-        } else {
-          set({ tasks: upsertById(state.tasks, toTask(payload.new)) });
-        }
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'automations', filter: `user_id=eq.${userId}` },
-      (payload) => {
-        if (payload.eventType === 'DELETE') {
-          set({ automations: state.automations.filter((a) => a.id !== (payload.old as { id: string }).id) });
-        } else {
-          set({ automations: upsertById(state.automations, toAutomation(payload.new)) });
-        }
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'settings', filter: `user_id=eq.${userId}` },
-      (payload) => {
-        if (payload.eventType !== 'DELETE') set({ settings: toSettings(payload.new) });
-      },
-    )
-    .subscribe();
-}
-
-async function teardown(): Promise<void> {
-  if (channel) {
-    await supabase.removeChannel(channel);
-    channel = null;
-  }
-  loadedUserId = null;
+async function loadSettings(userId: string): Promise<void> {
+  const { data } = await supabase.from('settings').select('*').eq('user_id', userId).single();
+  if (data) set({ settings: { voiceEnabled: data.voice_enabled, preferredModel: data.preferred_model } });
 }
 
 async function onSession(session: Session | null): Promise<void> {
-  const userId = session?.user.id ?? null;
   set({ session, authError: null });
+  const userId = session?.user.id ?? null;
 
-  if (userId && userId !== loadedUserId) {
-    loadedUserId = userId;
-    await loadData(userId);
-    subscribeRealtime(userId);
-    void registerPushToken();
-  } else if (!userId && loadedUserId) {
-    await teardown();
-    set({ messages: [], tasks: [], automations: [], settings: defaultSettings });
+  if (userId && userId !== connectedUserId) {
+    connectedUserId = userId;
+    await Promise.all([loadHistory(userId), loadSettings(userId)]);
+    connectWs(session!.access_token);
+  } else if (!userId && connectedUserId) {
+    connectedUserId = null;
+    disconnectWs();
+    set({ messages: [], settings: defaultSettings, status: 'idle', activeProject: null });
   }
 }
 
-/** Verifica a sessão atual e passa a ouvir mudanças de auth. Idempotente. */
+/** Verifica a sessão e conecta ao Hermes. Idempotente. */
 export async function init(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
-  if (!isSupabaseConfigured) {
+  if (!state.configured) {
     set({ ready: true });
     return;
   }
@@ -262,40 +187,50 @@ function traduzErro(msg: string): string {
 // Interação com o Hermes
 // ---------------------------------------------------------------------------
 
-/** Envia uma mensagem ao Hermes (Edge Function). A resposta chega via realtime. */
-export async function sendMessage(text: string): Promise<void> {
+/** Envia uma mensagem ao Hermes pelo WebSocket. Mostra a bolha do usuário na hora. */
+export function sendMessage(text: string): void {
   const trimmed = text.trim();
-  if (!trimmed || !state.session) return;
+  if (!trimmed) return;
 
-  set({ sending: true });
-  try {
-    const { error } = await supabase.functions.invoke('hermes', { body: { message: trimmed } });
-    if (error) {
-      set({
-        messages: sortMessages(
-          upsertById(state.messages, {
-            id: `err_${Date.now()}`,
-            role: 'hermes',
-            text: 'Não consegui processar agora. Verifique sua conexão e tente novamente.',
-            timestamp: Date.now(),
-            narrate: false,
-          }),
-        ),
-      });
-    }
-  } finally {
-    set({ sending: false });
+  appendMessage({ id: localId('user'), role: 'user', text: trimmed, timestamp: Date.now() });
+
+  const ok = wsSend({ type: 'user_message', text: trimmed, project: state.activeProject });
+  if (ok) {
+    set({ thinking: true });
+  } else {
+    appendMessage({
+      id: localId('err'),
+      role: 'hermes',
+      text: 'Sem conexão com o Hermes agora. Verifique se o servidor está rodando e tente de novo.',
+      timestamp: Date.now(),
+      narrate: false,
+    });
   }
 }
 
-/** Botões/sugestões viram mensagens de texto para o Hermes. */
+/** Chip de sugestão = mensagem de texto. */
 export function pressSuggestion(text: string): void {
-  void sendMessage(text);
+  sendMessage(text);
 }
 
-/** Liga/desliga a voz (persistido no Supabase). */
+// ---------------------------------------------------------------------------
+// Navegação de projetos
+// ---------------------------------------------------------------------------
+
+export function openProject(name: string): void {
+  set({ activeProject: name });
+}
+
+export function closeProject(): void {
+  set({ activeProject: null });
+}
+
+// ---------------------------------------------------------------------------
+// Configurações
+// ---------------------------------------------------------------------------
+
 export async function setVoiceEnabled(enabled: boolean): Promise<void> {
-  set({ settings: { ...state.settings, voiceEnabled: enabled } }); // otimista
+  set({ settings: { ...state.settings, voiceEnabled: enabled } });
   if (state.session) {
     await supabase
       .from('settings')
