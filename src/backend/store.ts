@@ -2,6 +2,7 @@ import type { RealtimeChannel, Session } from '@supabase/supabase-js';
 import { ChatMessage } from '../types/chat';
 import { Automation, Settings, Task } from './types';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { registerPushToken } from '../services/notifications';
 
 // ---------------------------------------------------------------------------
 // Estado da UI (espelha o backend Supabase + sessão de auth)
@@ -195,6 +196,7 @@ async function onSession(session: Session | null): Promise<void> {
     loadedUserId = userId;
     await loadData(userId);
     subscribeRealtime(userId);
+    void registerPushToken();
   } else if (!userId && loadedUserId) {
     await teardown();
     set({ messages: [], tasks: [], automations: [], settings: defaultSettings });

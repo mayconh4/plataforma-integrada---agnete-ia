@@ -101,6 +101,41 @@ tempo real.
 
 ---
 
+## 6. Push notifications + automações agendadas (app fechado)
+
+Faz o servidor agir **mesmo com o app fechado**: dispara automações no horário,
+reativa tarefas adiadas e envia **push** ao usuário.
+
+### 6.1. Aplicar a 2ª migration
+No SQL Editor, rode [`supabase/migrations/0002_scheduling_push.sql`](supabase/migrations/0002_scheduling_push.sql).
+Cria a tabela `push_tokens`, adiciona o agendamento estruturado das automações
+(hora/minuto/dias, em **America/Sao_Paulo**) e habilita as extensões `pg_cron` e `pg_net`.
+
+### 6.2. Credenciais de push (Android = FCM)
+Push remoto **não funciona no Expo Go** — precisa de um **dev build** ou do **APK (EAS)**.
+
+```bash
+eas init        # gera o projectId (vai para app.json -> extra.eas.projectId)
+```
+
+Para Android, configure o **FCM** nas credenciais do EAS (necessário p/ push):
+veja https://docs.expo.dev/push-notifications/fcm-credentials/ . Depois de logar no
+app (num dev build/APK), o token de push é salvo automaticamente em `push_tokens`.
+
+### 6.3. Deploy do scheduler + cron
+```bash
+supabase functions deploy scheduler
+supabase secrets set CRON_SECRET=$(openssl rand -hex 24)   # guarde esse valor
+```
+Agora agende a execução: abra [`supabase/scheduler_cron.sql`](supabase/scheduler_cron.sql),
+substitua `<PROJECT_REF>` e `<CRON_SECRET>` (o MESMO do passo acima) e rode no SQL Editor.
+O cron passa a chamar a função `scheduler` **a cada minuto**.
+
+> Teste rápido: crie uma automação com horário daqui a 1–2 min (ou peça ao Hermes
+> "adie minhas tarefas por 1 minuto") e aguarde — deve chegar uma push e uma mensagem.
+
+---
+
 ## Arquitetura (resumo)
 
 ```
@@ -112,10 +147,7 @@ App (React Native)
 Supabase
   ├─ Postgres + RLS (dados isolados por usuário)
   ├─ Realtime (websocket)
-  └─ Edge Function "hermes"
-        └─ OpenRouter (IA) com tool-calling -> age sobre o banco
+  ├─ Edge Function "hermes"      -> OpenRouter (IA) + tool-calling -> age no banco
+  └─ Edge Function "scheduler"   -> pg_cron (1/min) -> automações no horário,
+                                    tarefas adiadas vencidas -> mensagem + push (Expo)
 ```
-
-> **Push / app fechado:** ainda não implementado (escolhemos "só realtime" primeiro).
-> Quando quiser o modelo Telegram completo, dá pra adicionar `expo-notifications`
-> + gatilhos (pg_cron/Edge Function) numa próxima etapa.
