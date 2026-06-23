@@ -15,33 +15,37 @@ import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage } from '../types/chat';
 import { useHermes } from '../backend/useHermes';
-import { pressButton, pressSuggestion, sendMessage } from '../backend/store';
+import { pressSuggestion, sendMessage, signOut } from '../backend/store';
 import { speak } from '../services/voiceService';
 import { colors } from '../theme/colors';
 
 export function ChatScreen() {
-  const { conversation } = useHermes();
+  const { messages, sending } = useHermes();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const lastSpokenId = useRef<string | null>(null);
 
   // Narra a última mensagem do Hermes quando ela muda.
   useEffect(() => {
-    const last = conversation[conversation.length - 1];
+    const last = messages[messages.length - 1];
     if (last && last.role === 'hermes' && last.narrate && last.id !== lastSpokenId.current) {
       lastSpokenId.current = last.id;
       speak(last.text);
     }
-    if (conversation.length) {
+    if (messages.length) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
     }
-  }, [conversation]);
+  }, [messages]);
 
   const handleSend = () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-    sendMessage(text);
+    void sendMessage(text);
+  };
+
+  const onButtonPress = (_action: string, label: string) => {
+    void sendMessage(label);
   };
 
   return (
@@ -61,27 +65,39 @@ export function ChatScreen() {
               <Text style={styles.headerIcon}>⚡</Text>
               <View>
                 <Text style={styles.headerTitle}>Hermes</Text>
-                <Text style={styles.headerSubtitle}>Assistente Operacional</Text>
+                <Text style={styles.headerSubtitle}>{sending ? 'digitando…' : 'Online'}</Text>
               </View>
             </View>
-            <VoiceToggle />
+            <View style={styles.headerRight}>
+              <VoiceToggle />
+              <TouchableOpacity onPress={() => void signOut()} style={styles.signOut}>
+                <Text style={styles.signOutText}>Sair</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Messages */}
           <FlatList
             ref={flatListRef}
-            data={conversation}
+            data={messages}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <ChatBubble
                 message={item}
-                onButtonPress={pressButton}
+                onButtonPress={onButtonPress}
                 onSuggestionPress={pressSuggestion}
               />
             )}
             style={styles.messageList}
             contentContainerStyle={styles.messageListContent}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            ListFooterComponent={
+              sending ? (
+                <View style={styles.typing}>
+                  <Text style={styles.typingText}>Hermes está digitando…</Text>
+                </View>
+              ) : null
+            }
           />
 
           {/* Input */}
@@ -89,17 +105,18 @@ export function ChatScreen() {
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
-                placeholder="Digite algo ou toque nos botões..."
+                placeholder="Pergunte ou peça algo ao Hermes..."
                 placeholderTextColor={colors.textMuted}
                 value={inputText}
                 onChangeText={setInputText}
                 onSubmitEditing={handleSend}
                 returnKeyType="send"
+                editable={!sending}
               />
               <TouchableOpacity
                 onPress={handleSend}
                 style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]}
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() || sending}
               >
                 <Text style={styles.sendIcon}>↑</Text>
               </TouchableOpacity>
@@ -112,15 +129,9 @@ export function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  safe: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
+  gradient: { flex: 1 },
+  safe: { flex: 1 },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -130,31 +141,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerIcon: { fontSize: 28 },
+  headerTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
+  headerSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.5 },
+  signOut: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  headerIcon: {
-    fontSize: 28,
-  },
-  headerTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  headerSubtitle: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '500',
-    letterSpacing: 0.5,
-  },
-  messageList: {
-    flex: 1,
-  },
-  messageListContent: {
-    paddingVertical: 12,
-  },
+  signOutText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  messageList: { flex: 1 },
+  messageListContent: { paddingVertical: 12 },
+  typing: { paddingHorizontal: 24, paddingVertical: 8 },
+  typingText: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic' },
   inputBar: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -171,12 +174,7 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 4,
   },
-  input: {
-    flex: 1,
-    color: colors.textPrimary,
-    fontSize: 15,
-    paddingVertical: 12,
-  },
+  input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 12 },
   sendButton: {
     width: 36,
     height: 36,
@@ -185,12 +183,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  sendIcon: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  sendButtonActive: { backgroundColor: colors.primary },
+  sendIcon: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
 });

@@ -1,22 +1,19 @@
 import { useEffect, useState } from 'react';
-import { getState, init, subscribe } from './store';
-import { HermesState } from './types';
+import { getState, HermesUiState, init, subscribe } from './store';
 
 /**
- * Hook que conecta um componente ao estado do backend do Hermes.
+ * Hook que conecta um componente ao estado do backend do Hermes (Supabase).
  * Dispara o init() (idempotente) e re-renderiza a cada mudança de estado.
  */
-export function useHermes(): HermesState {
-  const [snapshot, setSnapshot] = useState<HermesState>(getState);
+export function useHermes(): HermesUiState {
+  const [snapshot, setSnapshot] = useState<HermesUiState>(getState);
 
   useEffect(() => {
     let mounted = true;
     const unsubscribe = subscribe(() => {
       if (mounted) setSnapshot(getState());
     });
-    void init().then(() => {
-      if (mounted) setSnapshot(getState());
-    });
+    void init();
     return () => {
       mounted = false;
       unsubscribe();

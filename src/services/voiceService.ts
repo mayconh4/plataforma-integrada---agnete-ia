@@ -6,7 +6,7 @@ export function isVoiceEnabled(): boolean {
 }
 
 export function setVoiceEnabled(enabled: boolean): void {
-  persistVoiceEnabled(enabled);
+  void persistVoiceEnabled(enabled);
   if (!enabled) {
     Speech.stop();
   }
