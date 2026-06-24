@@ -13,6 +13,7 @@ buttons: lista de {"label": str} (ou strings) → vira botão de múltipla escol
 import asyncio
 import importlib
 import json
+import re
 from typing import Any, Optional
 
 import httpx
@@ -126,6 +127,21 @@ async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
 # Adaptador: Hermes CLI one-shot — `hermes -z "<msg>"` (mesmo cérebro; bom p/ teste)
 # ---------------------------------------------------------------------------
 
+# Linhas de log/inicialização que o `hermes -z` imprime antes da resposta real.
+# Ex.: "[whatsapp-manager] ✅ Agendador ...", "[plugin] Puxando ... no boot...".
+_CLI_NOISE_RE = re.compile(r"^\s*\[[\w .:-]+\]")
+
+
+def _clean_cli_output(raw: str) -> str:
+    """Remove as linhas de log dos plugins, deixando só a resposta do Hermes."""
+    kept = [
+        line
+        for line in raw.splitlines()
+        if line.strip() and not _CLI_NOISE_RE.match(line)
+    ]
+    return "\n".join(kept).strip()
+
+
 async def _respond_hermes_cli(payload: dict[str, Any]) -> dict[str, Any]:
     args = [config.HERMES_CLI_BIN, "-z", payload["text"]]
     if config.HERMES_CLI_CONTINUE:
@@ -141,7 +157,7 @@ async def _respond_hermes_cli(payload: dict[str, Any]) -> dict[str, Any]:
         return {"text": "O Hermes demorou demais para responder.", "buttons": None, "suggestions": None, "narrate": False}
     if proc.returncode != 0:
         return {"text": f"Erro no Hermes (CLI): {err.decode('utf-8', 'ignore')[:300]}", "buttons": None, "suggestions": None, "narrate": False}
-    text = out.decode("utf-8", "ignore").strip()
+    text = _clean_cli_output(out.decode("utf-8", "ignore"))
     return {"text": text or "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
 
 
