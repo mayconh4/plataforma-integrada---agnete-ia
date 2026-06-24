@@ -3,6 +3,7 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import { getState, setVoiceEnabled as persistVoiceEnabled } from '../backend/store';
 import { httpBaseUrl } from '../backend/connection';
 import { getCachedVoice } from '../lib/voicePref';
+import { cleanForSpeech } from '../lib/textFormat';
 
 // ---------------------------------------------------------------------------
 // Voz: prioriza o áudio neural (edge-tts, vozes do Microsoft Edge) servido pelo
@@ -55,7 +56,8 @@ export function toggleVoice(): boolean {
 
 export function speak(text: string): void {
   if (!isVoiceEnabled()) return;
-  const clean = (text || '').trim();
+  // Fala só a parte em linguagem natural (sem caminhos, URLs ou código).
+  const clean = cleanForSpeech(text || '').trim();
   if (!clean) return;
 
   const base = httpBaseUrl();

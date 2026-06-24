@@ -45,9 +45,9 @@ export function AuthScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.brand}>
-          <Text style={styles.brandIcon}>⚡</Text>
-          <Text style={styles.brandTitle}>Hermes</Text>
-          <Text style={styles.brandSubtitle}>Assistente Operacional</Text>
+          <Text style={styles.brandIcon}>🐍</Text>
+          <Text style={styles.brandTitle}>Viper</Text>
+          <Text style={styles.brandSubtitle}>Seu sistema operacional pessoal</Text>
         </View>
 
         <View style={styles.card}>

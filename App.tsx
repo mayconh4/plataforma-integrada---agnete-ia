@@ -1,7 +1,7 @@
 import React from 'react';
 import { StatusBar, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChatScreen } from './src/screens/ChatScreen';
+import { MainScreen } from './src/screens/MainScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { useHermes } from './src/backend/useHermes';
 import { colors } from './src/theme/colors';
@@ -30,7 +30,7 @@ export default function App() {
           <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_URL</Text>{'\n'}
           <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text>{'\n'}
           depois reinicie o app. Veja o SETUP.md.{'\n\n'}
-          A URL do Hermes pode ser configurada dentro do app (⚙).
+          A URL da Viper pode ser configurada dentro do app (⚙).
         </Text>
       </Centered>
     );
@@ -43,7 +43,7 @@ export default function App() {
   } else if (!session) {
     content = <AuthScreen />;
   } else {
-    content = <ChatScreen />;
+    content = <MainScreen />;
   }
 
   return (

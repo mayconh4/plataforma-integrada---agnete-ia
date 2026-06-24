@@ -134,7 +134,7 @@ begin
 
   insert into public.messages (user_id, role, text, suggestions, narrate) values
     (new.id, 'hermes',
-     'Olá! Sou o Hermes, seu assistente operacional. Posso gerenciar suas tarefas, automações e responder o que precisar. Como posso ajudar?',
+     'Olá! Sou a Viper, seu sistema operacional pessoal. Posso gerenciar suas tarefas, automações e responder o que precisar. Como posso ajudar?',
      '["Ver minhas tarefas", "Status do sistema", "Criar uma tarefa"]'::jsonb,
      true);
 
