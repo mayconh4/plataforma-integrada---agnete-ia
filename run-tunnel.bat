@@ -1,9 +1,9 @@
 @echo off
 title Continental - Tunel
-echo Abrindo o tunel Cloudflare (porta 8000)...
-echo Copie a URL https://....trycloudflare.com que aparecer abaixo.
+echo Abrindo o tunel ngrok (URL FIXA) na porta 8000...
+echo URL fixa: https://strep-undocked-register.ngrok-free.dev
 echo.
-cloudflared tunnel --url http://localhost:8000
+ngrok http 8000 --domain=strep-undocked-register.ngrok-free.dev
 echo.
 echo O tunel encerrou.
 pause
