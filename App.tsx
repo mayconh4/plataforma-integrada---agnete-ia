@@ -29,8 +29,8 @@ export default function App() {
           Crie um arquivo <Text style={styles.code}>.env</Text> com:{'\n'}
           <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_URL</Text>{'\n'}
           <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text>{'\n'}
-          <Text style={styles.code}>EXPO_PUBLIC_HERMES_WS_URL</Text>{'\n'}
-          depois reinicie o app. Veja o SETUP.md.
+          depois reinicie o app. Veja o SETUP.md.{'\n\n'}
+          A URL do Hermes pode ser configurada dentro do app (⚙).
         </Text>
       </Centered>
     );

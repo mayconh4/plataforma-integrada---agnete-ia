@@ -8,9 +8,11 @@ import {
   configure as configureConn,
   connect as connectWs,
   disconnect as disconnectWs,
-  isHermesConfigured,
+  effectiveWsUrl,
+  hasWsUrl,
   send as wsSend,
 } from './connection';
+import { loadWsUrl, saveWsUrl } from '../lib/serverConfig';
 
 // ---------------------------------------------------------------------------
 // Estado da UI
@@ -26,12 +28,13 @@ export interface HermesUiState {
   messages: ChatMessage[];
   settings: Settings;
   activeProject: string | null; // projeto aberto (navegação)
+  wsUrl: string; // URL atual do Hermes (runtime)
 }
 
 const defaultSettings: Settings = { voiceEnabled: true, preferredModel: 'claude' };
 
 let state: HermesUiState = {
-  configured: isSupabaseConfigured && isHermesConfigured,
+  configured: isSupabaseConfigured, // a URL do Hermes pode ser definida no app
   ready: false,
   session: null,
   authError: null,
@@ -40,6 +43,7 @@ let state: HermesUiState = {
   messages: [],
   settings: defaultSettings,
   activeProject: null,
+  wsUrl: '',
 };
 
 const listeners = new Set<() => void>();
@@ -120,7 +124,8 @@ async function onSession(session: Session | null): Promise<void> {
   if (userId && userId !== connectedUserId) {
     connectedUserId = userId;
     await Promise.all([loadHistory(userId), loadSettings(userId)]);
-    connectWs(session!.access_token);
+    if (hasWsUrl()) connectWs(session!.access_token);
+    else set({ status: 'offline' });
   } else if (!userId && connectedUserId) {
     connectedUserId = null;
     disconnectWs();
@@ -138,6 +143,9 @@ export async function init(): Promise<void> {
     return;
   }
 
+  await loadWsUrl();
+  set({ wsUrl: effectiveWsUrl() });
+
   const { data } = await supabase.auth.getSession();
   await onSession(data.session);
   set({ ready: true });
@@ -145,6 +153,15 @@ export async function init(): Promise<void> {
   supabase.auth.onAuthStateChange((_event, session) => {
     void onSession(session);
   });
+}
+
+/** Define/atualiza a URL do Hermes (salva no aparelho) e reconecta. */
+export async function setServerUrl(url: string): Promise<void> {
+  await saveWsUrl(url);
+  set({ wsUrl: effectiveWsUrl() });
+  if (state.session && hasWsUrl()) {
+    connectWs(state.session.access_token);
+  }
 }
 
 // ---------------------------------------------------------------------------

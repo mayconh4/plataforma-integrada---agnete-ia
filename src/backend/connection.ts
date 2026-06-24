@@ -1,7 +1,16 @@
 // Cliente WebSocket que conecta o app ao Hermes (backend FastAPI, via Cloudflare Tunnel).
+import { getCachedWsUrl } from '../lib/serverConfig';
 
-export const HERMES_WS_URL = process.env.EXPO_PUBLIC_HERMES_WS_URL ?? '';
-export const isHermesConfigured = HERMES_WS_URL.length > 0;
+// URL embutida no build (.env). Pode ser sobrescrita em runtime (serverConfig).
+export const ENV_WS_URL = process.env.EXPO_PUBLIC_HERMES_WS_URL ?? '';
+
+export function effectiveWsUrl(): string {
+  return (getCachedWsUrl() || ENV_WS_URL).trim();
+}
+
+export function hasWsUrl(): boolean {
+  return effectiveWsUrl().length > 0;
+}
 
 export type ConnStatus = 'idle' | 'connecting' | 'online' | 'offline';
 
@@ -32,9 +41,13 @@ export function configure(h: Handlers): void {
 }
 
 function open(): void {
-  if (!HERMES_WS_URL || !token) return;
+  const url = effectiveWsUrl();
+  if (!url || !token) {
+    handlers?.onStatus('offline');
+    return;
+  }
   handlers?.onStatus('connecting');
-  const socket = new WebSocket(`${HERMES_WS_URL}?token=${encodeURIComponent(token)}`);
+  const socket = new WebSocket(`${url}?token=${encodeURIComponent(token)}`);
   ws = socket;
 
   socket.onmessage = (event) => {

@@ -10,13 +10,21 @@ import {
   Text,
   SafeAreaView,
   Animated,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage } from '../types/chat';
 import { useHermes } from '../backend/useHermes';
-import { closeProject, openProject, pressSuggestion, sendMessage, signOut } from '../backend/store';
+import {
+  closeProject,
+  openProject,
+  pressSuggestion,
+  sendMessage,
+  setServerUrl,
+  signOut,
+} from '../backend/store';
 import { speak } from '../services/voiceService';
 import { useVoiceInput } from '../services/speech';
 import { colors } from '../theme/colors';
@@ -29,11 +37,23 @@ const statusLabel: Record<string, string> = {
 };
 
 export function ChatScreen() {
-  const { messages, thinking, status, activeProject } = useHermes();
+  const { messages, thinking, status, activeProject, wsUrl } = useHermes();
   const [inputText, setInputText] = useState('');
+  const [showServer, setShowServer] = useState(false);
+  const [serverInput, setServerInput] = useState('');
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const lastSpokenId = useRef<string | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
+
+  const openServerModal = () => {
+    setServerInput(wsUrl);
+    setShowServer(true);
+  };
+
+  const saveServer = () => {
+    void setServerUrl(serverInput);
+    setShowServer(false);
+  };
 
   const { listening, partial, start, stop } = useVoiceInput((t) => sendMessage(t));
 
@@ -115,11 +135,23 @@ export function ChatScreen() {
             </View>
             <View style={styles.headerRight}>
               <VoiceToggle />
+              <TouchableOpacity onPress={openServerModal} style={styles.iconBtn}>
+                <Text style={styles.iconBtnText}>⚙</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => void signOut()} style={styles.iconBtn}>
                 <Text style={styles.iconBtnText}>Sair</Text>
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Aviso quando offline / sem servidor configurado */}
+          {status === 'offline' ? (
+            <TouchableOpacity onPress={openServerModal} style={styles.offlineBanner}>
+              <Text style={styles.offlineText}>
+                {wsUrl ? 'Hermes offline — toque para conferir o servidor' : 'Toque para configurar o servidor do Hermes'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Banner do projeto ativo */}
           {activeProject ? (
@@ -185,6 +217,36 @@ export function ChatScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Modal: configurar a URL do Hermes */}
+          <Modal visible={showServer} transparent animationType="fade" onRequestClose={() => setShowServer(false)}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>Servidor do Hermes</Text>
+                <Text style={styles.modalHint}>
+                  Cole a URL WebSocket do túnel (Cloudflare), terminando em /ws.{'\n'}
+                  Ex.: wss://algo.trycloudflare.com/ws
+                </Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="wss://...trycloudflare.com/ws"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={serverInput}
+                  onChangeText={setServerInput}
+                />
+                <View style={styles.modalRow}>
+                  <TouchableOpacity onPress={() => setShowServer(false)} style={styles.modalBtnGhost}>
+                    <Text style={styles.modalBtnGhostText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={saveServer} style={styles.modalBtn}>
+                    <Text style={styles.modalBtnText}>Salvar e conectar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>
@@ -219,6 +281,55 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
   iconBtnText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  offlineBanner: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,71,87,0.15)',
+    borderWidth: 1,
+    borderColor: colors.danger,
+  },
+  offlineText: { color: colors.textPrimary, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    padding: 20,
+  },
+  modalTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 8 },
+  modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  modalInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    color: colors.textPrimary,
+    fontSize: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  modalRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  modalBtnGhost: { paddingHorizontal: 14, paddingVertical: 10 },
+  modalBtnGhostText: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  modalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  modalBtnText: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
   projectBanner: {
     flexDirection: 'row',
     alignItems: 'center',
