@@ -8,7 +8,7 @@ import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response
 
 from . import config, hermes, supabase_store
 
@@ -28,24 +28,30 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/tts")
-async def tts(text: str, voice: str = config.TTS_VOICE) -> StreamingResponse:
+async def tts(text: str = "", voice: str = config.TTS_VOICE):
     """Gera áudio neural (vozes do Microsoft Edge, grátis) e devolve um MP3.
 
     O app chama este endpoint para narrar as respostas do Hermes com voz natural.
+    Gera o áudio completo antes de responder: assim, se o edge-tts falhar,
+    devolvemos um erro legível (HTTP 500 JSON) em vez de uma resposta quebrada.
     """
     import edge_tts
 
-    clean = (text or "").strip()[: config.TTS_MAX_CHARS]
-    if not clean:
-        clean = "."
-
-    async def generate():
+    clean = (text or "").strip()[: config.TTS_MAX_CHARS] or "."
+    try:
+        audio = bytearray()
         communicate = edge_tts.Communicate(clean, voice)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
-                yield chunk["data"]
-
-    return StreamingResponse(generate(), media_type="audio/mpeg")
+                audio.extend(chunk["data"])
+        if not audio:
+            raise RuntimeError("edge-tts não retornou áudio (verifique a voz/conexão)")
+        return Response(content=bytes(audio), media_type="audio/mpeg")
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"error": type(e).__name__, "detail": str(e)[:400], "voice": voice},
+        )
 
 
 async def _send(ws: WebSocket, payload: dict) -> None:
