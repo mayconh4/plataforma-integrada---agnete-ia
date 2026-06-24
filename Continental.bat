@@ -13,10 +13,10 @@ REM 2) Encerra tuneis antigos do cloudflared
 taskkill /F /IM cloudflared.exe >nul 2>&1
 
 REM 3) Sobe o backend (uvicorn) numa janela propria
-start "Continental - Backend" cmd /k "cd /d "%~dp0backend" && call .venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+start "Continental - Backend" "%~dp0backend\run-backend.bat"
 
 REM 4) Sobe o tunel (cloudflared) numa janela propria
-start "Continental - Tunel" cmd /k "cloudflared tunnel --url http://localhost:8000"
+start "Continental - Tunel" "%~dp0run-tunnel.bat"
 
 echo Duas janelas foram abertas:
 echo.
