@@ -23,15 +23,16 @@ OPENROUTER_API_KEY = _req("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # --- Onde está o "cérebro" do Hermes ---
-# "hermes_api" (default): fala com o Hermes Agent via gateway API Server
-#               (`hermes gateway run --platform api-server`, POST /chat). MESMO núcleo
-#               do Telegram: tools, skills, memória; o Hermes decide o modelo.
-# "hermes_cli": Hermes em one-shot (`hermes -z "<msg>"`) — bom para teste rápido.
+# "hermes_cli" (default): fala com o Hermes Agent em one-shot (`hermes -z "<msg>"`).
+#               MESMO cérebro do Telegram (tools, skills, memória); o Hermes decide
+#               o modelo. Funciona em qualquer instalação do Hermes via CLI.
+# "hermes_api": fala com o Hermes via gateway HTTP (POST /chat) — exige um gateway
+#               rodando que exponha esse endpoint.
 # "http":     chama um Hermes próprio por HTTP (HERMES_HTTP_URL).
 # "command":  executa um script/CLI próprio (HERMES_COMMAND), JSON via stdin/stdout.
 # "python":   importa e chama uma função (HERMES_PYTHON_TARGET, ex.: "meu_hermes:responder").
 # "openrouter": fallback — este backend conversa direto com a IA via OpenRouter.
-HERMES_BACKEND = os.environ.get("HERMES_BACKEND", "hermes_api").strip().lower()
+HERMES_BACKEND = os.environ.get("HERMES_BACKEND", "hermes_cli").strip().lower()
 
 # (hermes_api) URL base do gateway API Server do Hermes.
 HERMES_API_URL = os.environ.get("HERMES_API_URL", "http://localhost:8080").strip().rstrip("/")

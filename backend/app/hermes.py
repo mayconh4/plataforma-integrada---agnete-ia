@@ -107,7 +107,7 @@ async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
             resp = await client.post(url, json=body)
             if resp.status_code != 200:
                 return {
-                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway está rodando? `hermes gateway run --platform api-server`",
+                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway HTTP está rodando em {config.HERMES_API_URL}?",
                     "buttons": None,
                     "suggestions": None,
                     "narrate": False,
