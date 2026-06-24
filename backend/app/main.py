@@ -4,6 +4,8 @@ Expõe um WebSocket que conecta o app (celular) ao Hermes (este processo, local)
 Fluxo: app -> WS -> Hermes processa (escolhe modelo, responde) -> volta pelo WS.
 A persistência é no Supabase. Exponha para o celular com Cloudflare Tunnel.
 """
+import asyncio
+import io
 import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -27,31 +29,58 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "continental-hermes"}
 
 
-@app.get("/tts")
-async def tts(text: str = "", voice: str = config.TTS_VOICE):
-    """Gera áudio neural (vozes do Microsoft Edge, grátis) e devolve um MP3.
-
-    O app chama este endpoint para narrar as respostas do Hermes com voz natural.
-    Gera o áudio completo antes de responder: assim, se o edge-tts falhar,
-    devolvemos um erro legível (HTTP 500 JSON) em vez de uma resposta quebrada.
-    """
+async def _edge_tts(text: str, voice: str) -> bytes:
+    """Voz neural do Microsoft Edge (melhor qualidade)."""
     import edge_tts
 
+    audio = bytearray()
+    async for chunk in edge_tts.Communicate(text, voice).stream():
+        if chunk["type"] == "audio":
+            audio.extend(chunk["data"])
+    if not audio:
+        raise RuntimeError("edge-tts retornou vazio")
+    return bytes(audio)
+
+
+async def _gtts(text: str) -> bytes:
+    """Fallback: voz do Google Tradutor (natural e muito estável)."""
+    from gtts import gTTS
+
+    def _gen() -> bytes:
+        buf = io.BytesIO()
+        gTTS(text=text, lang="pt", tld="com.br").write_to_fp(buf)
+        return buf.getvalue()
+
+    audio = await asyncio.to_thread(_gen)
+    if not audio:
+        raise RuntimeError("gTTS retornou vazio")
+    return audio
+
+
+@app.get("/tts")
+async def tts(text: str = "", voice: str = config.TTS_VOICE):
+    """Devolve um MP3 com a resposta narrada (voz natural).
+
+    Tenta primeiro a voz neural do Edge (edge-tts). Se falhar por qualquer
+    motivo no PC do usuário (rede, bloqueio, etc.), cai para a voz do Google
+    (gTTS). Só devolve erro legível (HTTP 500 JSON) se as duas falharem.
+    """
     clean = (text or "").strip()[: config.TTS_MAX_CHARS] or "."
+
     try:
-        audio = bytearray()
-        communicate = edge_tts.Communicate(clean, voice)
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio.extend(chunk["data"])
-        if not audio:
-            raise RuntimeError("edge-tts não retornou áudio (verifique a voz/conexão)")
-        return Response(content=bytes(audio), media_type="audio/mpeg")
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse(
-            status_code=500,
-            content={"error": type(e).__name__, "detail": str(e)[:400], "voice": voice},
-        )
+        return Response(content=await _edge_tts(clean, voice), media_type="audio/mpeg")
+    except Exception as edge_err:  # noqa: BLE001
+        edge_detail = f"{type(edge_err).__name__}: {edge_err}"
+
+    try:
+        return Response(content=await _gtts(clean), media_type="audio/mpeg")
+    except Exception as gtts_err:  # noqa: BLE001
+        gtts_detail = f"{type(gtts_err).__name__}: {gtts_err}"
+
+    return JSONResponse(
+        status_code=500,
+        content={"error": "tts_failed", "edge": edge_detail[:300], "gtts": gtts_detail[:300]},
+    )
 
 
 async def _send(ws: WebSocket, payload: dict) -> None:
