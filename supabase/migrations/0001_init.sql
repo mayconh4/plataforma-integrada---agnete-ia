@@ -86,7 +86,7 @@ begin
 end $$;
 
 -- ----------------------------------------------------------------------------
--- Realtime: publica as tabelas para o canal supabase_realtime
+-- Realtime: publica as tabelas para o canal supabase_realtime (idempotente)
 -- ----------------------------------------------------------------------------
 
 do $$
@@ -96,10 +96,19 @@ begin
   end if;
 end $$;
 
-alter publication supabase_realtime add table public.messages;
-alter publication supabase_realtime add table public.tasks;
-alter publication supabase_realtime add table public.automations;
-alter publication supabase_realtime add table public.settings;
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['messages','tasks','automations','settings'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I;', t);
+    end if;
+  end loop;
+end $$;
 
 -- ----------------------------------------------------------------------------
 -- Seed automático ao criar um novo usuário (settings + dados de exemplo)
