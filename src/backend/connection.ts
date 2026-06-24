@@ -12,6 +12,16 @@ export function hasWsUrl(): boolean {
   return effectiveWsUrl().length > 0;
 }
 
+/** Converte a URL WebSocket (wss://host/ws) na base HTTP (https://host) para chamar /tts, /health etc. */
+export function httpBaseUrl(): string {
+  const ws = effectiveWsUrl();
+  if (!ws) return '';
+  return ws
+    .replace(/^wss:\/\//i, 'https://')
+    .replace(/^ws:\/\//i, 'http://')
+    .replace(/\/ws\/?$/i, '');
+}
+
 export type ConnStatus = 'idle' | 'connecting' | 'online' | 'offline';
 
 export interface IncomingMessage {

@@ -52,3 +52,9 @@ HERMES_CLI_TIMEOUT = int(os.environ.get("HERMES_CLI_TIMEOUT", "180"))
 # Servidor
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
+
+# TTS (voz neural via edge-tts — vozes do Microsoft Edge, grátis).
+# Vozes pt-BR comuns: pt-BR-AntonioNeural (masc.), pt-BR-FranciscaNeural (fem.),
+# pt-BR-ThalitaNeural (fem.). Veja `edge-tts --list-voices`.
+TTS_VOICE = os.environ.get("TTS_VOICE", "pt-BR-AntonioNeural").strip()
+TTS_MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "2000"))

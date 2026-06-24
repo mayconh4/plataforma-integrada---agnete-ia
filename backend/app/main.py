@@ -8,6 +8,7 @@ import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from . import config, hermes, supabase_store
 
@@ -24,6 +25,27 @@ app.add_middleware(
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "continental-hermes"}
+
+
+@app.get("/tts")
+async def tts(text: str, voice: str = config.TTS_VOICE) -> StreamingResponse:
+    """Gera áudio neural (vozes do Microsoft Edge, grátis) e devolve um MP3.
+
+    O app chama este endpoint para narrar as respostas do Hermes com voz natural.
+    """
+    import edge_tts
+
+    clean = (text or "").strip()[: config.TTS_MAX_CHARS]
+    if not clean:
+        clean = "."
+
+    async def generate():
+        communicate = edge_tts.Communicate(clean, voice)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
+
+    return StreamingResponse(generate(), media_type="audio/mpeg")
 
 
 async def _send(ws: WebSocket, payload: dict) -> None:
