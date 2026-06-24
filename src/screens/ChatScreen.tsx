@@ -11,6 +11,7 @@ import {
   SafeAreaView,
   Animated,
   Modal,
+  StatusBar as RNStatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
@@ -23,11 +24,15 @@ import {
   pressSuggestion,
   sendMessage,
   setServerUrl,
+  setVoice,
   signOut,
 } from '../backend/store';
 import { speak } from '../services/voiceService';
 import { useVoiceInput } from '../services/speech';
+import { VOICE_OPTIONS } from '../lib/voicePref';
 import { colors } from '../theme/colors';
+
+const topInset = Platform.OS === 'android' ? RNStatusBar.currentHeight ?? 0 : 0;
 
 const statusLabel: Record<string, string> = {
   idle: 'Conectando…',
@@ -37,7 +42,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export function ChatScreen() {
-  const { messages, thinking, status, activeProject, wsUrl } = useHermes();
+  const { messages, thinking, status, activeProject, wsUrl, voice } = useHermes();
   const [inputText, setInputText] = useState('');
   const [showServer, setShowServer] = useState(false);
   const [serverInput, setServerInput] = useState('');
@@ -53,6 +58,12 @@ export function ChatScreen() {
   const saveServer = () => {
     void setServerUrl(serverInput);
     setShowServer(false);
+  };
+
+  // Troca a voz e toca uma prévia para o usuário ouvir na hora.
+  const chooseVoice = async (voiceId: string) => {
+    await setVoice(voiceId);
+    speak('Olá Maycon, essa é a minha voz.');
   };
 
   const { listening, partial, start, stop } = useVoiceInput((t) => sendMessage(t));
@@ -120,7 +131,7 @@ export function ChatScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: topInset + 14 }]}>
             <View style={styles.headerLeft}>
               <Text style={styles.headerIcon}>⚡</Text>
               <View>
@@ -218,11 +229,34 @@ export function ChatScreen() {
             </View>
           </View>
 
-          {/* Modal: configurar a URL do Hermes */}
+          {/* Modal: configurações (voz + servidor) */}
           <Modal visible={showServer} transparent animationType="fade" onRequestClose={() => setShowServer(false)}>
             <View style={styles.modalOverlay}>
               <View style={styles.modalCard}>
-                <Text style={styles.modalTitle}>Servidor do Hermes</Text>
+                <Text style={styles.modalTitle}>Configurações</Text>
+
+                {/* Seletor de voz */}
+                <Text style={styles.modalSection}>Voz do Hermes</Text>
+                <Text style={styles.modalHint}>Toque para ouvir uma prévia e definir a voz.</Text>
+                <View style={styles.voiceGrid}>
+                  {VOICE_OPTIONS.map((v) => {
+                    const selected = v.id === voice;
+                    return (
+                      <TouchableOpacity
+                        key={v.id}
+                        onPress={() => void chooseVoice(v.id)}
+                        style={[styles.voiceChip, selected && styles.voiceChipActive]}
+                      >
+                        <Text style={[styles.voiceChipText, selected && styles.voiceChipTextActive]}>
+                          {v.gender === 'f' ? '♀' : '♂'} {v.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Servidor */}
+                <Text style={styles.modalSection}>Servidor do Hermes</Text>
                 <Text style={styles.modalHint}>
                   Cole a URL WebSocket do túnel (Cloudflare), terminando em /ws.{'\n'}
                   Ex.: wss://algo.trycloudflare.com/ws
@@ -238,7 +272,7 @@ export function ChatScreen() {
                 />
                 <View style={styles.modalRow}>
                   <TouchableOpacity onPress={() => setShowServer(false)} style={styles.modalBtnGhost}>
-                    <Text style={styles.modalBtnGhostText}>Cancelar</Text>
+                    <Text style={styles.modalBtnGhostText}>Fechar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={saveServer} style={styles.modalBtn}>
                     <Text style={styles.modalBtnText}>Salvar e conectar</Text>
@@ -307,8 +341,21 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     padding: 20,
   },
-  modalTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 8 },
-  modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  modalTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 12 },
+  modalSection: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: 0.3 },
+  modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  voiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  voiceChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  voiceChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryGlow },
+  voiceChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  voiceChipTextActive: { color: colors.textPrimary, fontWeight: '700' },
   modalInput: {
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 12,

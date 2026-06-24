@@ -13,6 +13,7 @@ import {
   send as wsSend,
 } from './connection';
 import { loadWsUrl, saveWsUrl } from '../lib/serverConfig';
+import { DEFAULT_VOICE, getCachedVoice, loadVoice, saveVoice } from '../lib/voicePref';
 
 // ---------------------------------------------------------------------------
 // Estado da UI
@@ -29,6 +30,7 @@ export interface HermesUiState {
   settings: Settings;
   activeProject: string | null; // projeto aberto (navegação)
   wsUrl: string; // URL atual do Hermes (runtime)
+  voice: string; // voz escolhida para a narração (runtime)
 }
 
 const defaultSettings: Settings = { voiceEnabled: true, preferredModel: 'claude' };
@@ -44,6 +46,7 @@ let state: HermesUiState = {
   settings: defaultSettings,
   activeProject: null,
   wsUrl: '',
+  voice: DEFAULT_VOICE,
 };
 
 const listeners = new Set<() => void>();
@@ -138,6 +141,9 @@ export async function init(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
+  await loadVoice();
+  set({ voice: getCachedVoice() });
+
   if (!state.configured) {
     set({ ready: true });
     return;
@@ -162,6 +168,12 @@ export async function setServerUrl(url: string): Promise<void> {
   if (state.session && hasWsUrl()) {
     connectWs(state.session.access_token);
   }
+}
+
+/** Define/atualiza a voz da narração (salva no aparelho). */
+export async function setVoice(voiceId: string): Promise<void> {
+  await saveVoice(voiceId);
+  set({ voice: getCachedVoice() });
 }
 
 // ---------------------------------------------------------------------------

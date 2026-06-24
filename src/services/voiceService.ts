@@ -2,6 +2,7 @@ import * as Speech from 'expo-speech';
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { getState, setVoiceEnabled as persistVoiceEnabled } from '../backend/store';
 import { httpBaseUrl } from '../backend/connection';
+import { getCachedVoice } from '../lib/voicePref';
 
 // ---------------------------------------------------------------------------
 // Voz: prioriza o áudio neural (edge-tts, vozes do Microsoft Edge) servido pelo
@@ -67,7 +68,7 @@ export function speak(text: string): void {
     try {
       await ensureAudioMode();
       stopSpeaking();
-      const uri = `${base}/tts?text=${encodeURIComponent(clean)}`;
+      const uri = `${base}/tts?text=${encodeURIComponent(clean)}&voice=${encodeURIComponent(getCachedVoice())}`;
       player = createAudioPlayer({ uri });
       player.play();
     } catch {

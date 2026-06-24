@@ -56,5 +56,5 @@ PORT = int(os.environ.get("PORT", "8000"))
 # TTS (voz neural via edge-tts — vozes do Microsoft Edge, grátis).
 # Vozes pt-BR comuns: pt-BR-AntonioNeural (masc.), pt-BR-FranciscaNeural (fem.),
 # pt-BR-ThalitaNeural (fem.). Veja `edge-tts --list-voices`.
-TTS_VOICE = os.environ.get("TTS_VOICE", "pt-BR-AntonioNeural").strip()
+TTS_VOICE = os.environ.get("TTS_VOICE", "pt-BR-FranciscaNeural").strip()
 TTS_MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "2000"))
