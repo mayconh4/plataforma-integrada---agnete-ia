@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { LiquidGlassButton } from './LiquidGlassButton';
+import { GlassButton } from './glass/GlassButton';
 import { ContextButton } from '../types/chat';
 
 interface Props {
@@ -12,17 +12,20 @@ export function ContextualButtons({ buttons, onPress }: Props) {
   return (
     <View style={styles.container}>
       {buttons.map((btn) => (
-        <LiquidGlassButton key={btn.id} button={btn} onPress={onPress} />
+        <GlassButton
+          key={btn.id}
+          label={btn.label}
+          icon={btn.icon}
+          variant={btn.variant ?? 'secondary'}
+          onPress={() => onPress(btn.action)}
+          style={styles.btn}
+        />
       ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 8,
-    marginBottom: 4,
-  },
+  container: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  btn: { marginBottom: 0 },
 });

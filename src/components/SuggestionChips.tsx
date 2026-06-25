@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
 
 interface Props {
   suggestions: string[];
@@ -8,11 +8,16 @@ interface Props {
 }
 
 export function SuggestionChips({ suggestions, onPress }: Props) {
+  const { theme } = useTheme();
   return (
     <View style={styles.container}>
       {suggestions.map((s, i) => (
-        <TouchableOpacity key={i} style={styles.chip} onPress={() => onPress(s)}>
-          <Text style={styles.chipText}>{s}</Text>
+        <TouchableOpacity
+          key={i}
+          style={[styles.chip, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}
+          onPress={() => onPress(s)}
+        >
+          <Text style={[styles.chipText, { color: theme.textSecondary }]}>{s}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -20,23 +25,7 @@ export function SuggestionChips({ suggestions, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 4,
-    gap: 6,
-  },
-  chip: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '500',
-  },
+  container: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10, gap: 8 },
+  chip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1 },
+  chipText: { fontSize: 12.5, fontWeight: '600' },
 });

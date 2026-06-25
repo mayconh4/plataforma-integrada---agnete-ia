@@ -8,11 +8,12 @@ export interface ContextButton {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'hermes';
+  role: 'user' | 'agent';
   text: string;
   timestamp: number;
   buttons?: ContextButton[];
   suggestions?: string[];
+  /** Whether this message should be auto-narrated when it arrives. */
   narrate?: boolean;
 }
 

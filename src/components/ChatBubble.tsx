@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { useTheme } from '../theme/ThemeContext';
 import { ChatMessage } from '../types/chat';
 import { ContextualButtons } from './ContextualButtons';
 import { SuggestionChips } from './SuggestionChips';
-import { colors } from '../theme/colors';
+import { SpeakButton } from './SpeakButton';
+import { GlassView } from './glass/GlassView';
 
 interface Props {
   message: ChatMessage;
@@ -13,84 +14,67 @@ interface Props {
 }
 
 export function ChatBubble({ message, onButtonPress, onSuggestionPress }: Props) {
-  const isHermes = message.role === 'hermes';
+  const { theme } = useTheme();
+  const isAgent = message.role === 'agent';
 
   return (
-    <View style={[styles.row, isHermes ? styles.rowHermes : styles.rowUser]}>
-      {isHermes && (
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>⚡</Text>
+    <View style={[styles.row, isAgent ? styles.rowAgent : styles.rowUser]}>
+      {isAgent && (
+        <View style={[styles.avatar, { backgroundColor: theme.primarySoft, borderColor: theme.glassBorder }]}>
+          <Text style={styles.avatarText}>🐍</Text>
         </View>
       )}
-      <View style={[styles.bubbleContainer, isHermes ? styles.hermesBubble : styles.userBubble]}>
-        <BlurView intensity={20} tint="dark" style={styles.blur}>
-          <Text style={[styles.text, isHermes ? styles.hermesText : styles.userText]}>
-            {message.text}
-          </Text>
-          {isHermes && message.buttons && message.buttons.length > 0 && (
-            <ContextualButtons buttons={message.buttons} onPress={onButtonPress} />
-          )}
-          {isHermes && message.suggestions && message.suggestions.length > 0 && (
-            <SuggestionChips suggestions={message.suggestions} onPress={onSuggestionPress} />
-          )}
-        </BlurView>
+      <View style={styles.bubbleWrap}>
+        {isAgent ? (
+          <GlassView radius={20} style={[styles.bubble, { borderColor: theme.bubbleAgentBorder }]}>
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bubbleAgent, borderRadius: 20 }]} />
+            <Text style={[styles.text, { color: theme.textPrimary }]}>{message.text}</Text>
+            {message.buttons && message.buttons.length > 0 && (
+              <ContextualButtons buttons={message.buttons} onPress={onButtonPress} />
+            )}
+            {message.suggestions && message.suggestions.length > 0 && (
+              <SuggestionChips suggestions={message.suggestions} onPress={onSuggestionPress} />
+            )}
+            <View style={styles.footer}>
+              <SpeakButton id={message.id} text={message.text} size={28} />
+              <Text style={[styles.speakHint, { color: theme.textMuted }]}>Ouvir</Text>
+            </View>
+          </GlassView>
+        ) : (
+          <View
+            style={[
+              styles.bubble,
+              styles.userBubble,
+              { backgroundColor: theme.bubbleUser, borderColor: theme.bubbleUserBorder },
+            ]}
+          >
+            <Text style={[styles.text, { color: theme.textPrimary }]}>{message.text}</Text>
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    marginVertical: 6,
-    paddingHorizontal: 12,
-    alignItems: 'flex-end',
-  },
-  rowHermes: {
-    justifyContent: 'flex-start',
-  },
-  rowUser: {
-    justifyContent: 'flex-end',
-  },
+  row: { flexDirection: 'row', marginVertical: 6, paddingHorizontal: 14, alignItems: 'flex-end' },
+  rowAgent: { justifyContent: 'flex-start' },
+  rowUser: { justifyContent: 'flex-end' },
   avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
     marginBottom: 4,
-  },
-  avatarText: {
-    fontSize: 16,
-  },
-  bubbleContainer: {
-    maxWidth: '80%',
-    borderRadius: 20,
-    overflow: 'hidden',
     borderWidth: 1,
   },
-  hermesBubble: {
-    borderColor: 'rgba(108, 99, 255, 0.2)',
-    backgroundColor: colors.hermesBubble,
-  },
-  userBubble: {
-    borderColor: 'rgba(0, 212, 170, 0.2)',
-    backgroundColor: colors.userBubble,
-  },
-  blur: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  text: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  hermesText: {
-    color: colors.textPrimary,
-  },
-  userText: {
-    color: colors.textPrimary,
-  },
+  avatarText: { fontSize: 17 },
+  bubbleWrap: { maxWidth: '82%' },
+  bubble: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 13, overflow: 'hidden' },
+  userBubble: { borderTopRightRadius: 6 },
+  text: { fontSize: 15.5, lineHeight: 23 },
+  footer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  speakHint: { fontSize: 11.5, fontWeight: '600' },
 });

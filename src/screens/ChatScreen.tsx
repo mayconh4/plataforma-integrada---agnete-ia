@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   TextInput,
@@ -6,221 +6,133 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
+  Pressable,
   Text,
-  SafeAreaView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/ThemeContext';
+import { useStore } from '../store/AppStore';
+import { ChatHeader } from '../components/ChatHeader';
 import { ChatBubble } from '../components/ChatBubble';
-import { VoiceToggle } from '../components/VoiceToggle';
-import { ChatMessage, ConversationContext } from '../types/chat';
-import { processUserInput, processButtonAction, getWelcomeMessage } from '../services/hermesEngine';
-import { speak } from '../services/voiceService';
-import { colors } from '../theme/colors';
+import { ChatMessage } from '../types/chat';
+import { processUserInput, getWelcomeMessage, replyForAction } from '../services/viperEngine';
+import { narrate } from '../services/voiceService';
+import { TAB_BAR_SPACE } from '../components/ScreenContainer';
+import { TabKey } from '../components/TabBar';
 
-export function ChatScreen() {
-  const [messages, setMessages] = useState<ChatMessage[]>([getWelcomeMessage()]);
+interface Props {
+  go: (key: TabKey) => void;
+  onOpenSettings: () => void;
+}
+
+const NAV_ACTIONS: Record<string, TabKey> = {
+  open_resumo: 'resumo',
+  open_tarefas: 'tarefas',
+  open_projetos: 'projetos',
+  open_metas: 'metas',
+};
+
+export function ChatScreen({ go, onOpenSettings }: Props) {
+  const { theme, toggle: toggleTheme } = useTheme();
+  const { data, bumpMessageCount } = useStore();
+  const insets = useSafeAreaInsets();
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [getWelcomeMessage(data.settings.userName)]);
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  const context: ConversationContext = { history: messages };
+  const pushAgent = useCallback(
+    (agentMsg: ChatMessage) => {
+      setMessages((prev) => [...prev, agentMsg]);
+      if (data.settings.voiceEnabled && data.settings.autoNarrate && agentMsg.narrate) {
+        narrate(agentMsg.id, agentMsg.text);
+      }
+      bumpMessageCount(1);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+    },
+    [data.settings, bumpMessageCount]
+  );
 
-  useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (last?.role === 'hermes' && last.narrate) {
-      speak(last.text);
-    }
-  }, [messages]);
-
-  const addMessages = (userMsg: ChatMessage, hermesMsg: ChatMessage) => {
-    setMessages((prev) => [...prev, userMsg, hermesMsg]);
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  };
+  const sendUser = useCallback(
+    (text: string) => {
+      const userMsg: ChatMessage = { id: `user_${Date.now()}`, role: 'user', text, timestamp: Date.now() };
+      setMessages((prev) => [...prev, userMsg]);
+      bumpMessageCount(1);
+      const reply = processUserInput(text, { history: messages });
+      setTimeout(() => pushAgent(reply), 220);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+    },
+    [messages, pushAgent, bumpMessageCount]
+  );
 
   const handleSend = () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
+    sendUser(text);
   };
 
-  const handleButtonPress = (action: string) => {
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text: `[${action}]`,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processButtonAction(action, context);
-    addMessages(userMsg, hermesMsg);
-  };
-
-  const handleSuggestionPress = (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
+  const handleAction = (action: string) => {
+    if (action === 'open_conta') return onOpenSettings();
+    if (action === 'toggle_theme') return toggleTheme();
+    const tab = NAV_ACTIONS[action];
+    if (tab) return go(tab);
+    pushAgent(replyForAction(action));
   };
 
   return (
-    <LinearGradient
-      colors={[colors.backgroundGradientStart, colors.backgroundGradientEnd]}
-      style={styles.gradient}
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
     >
-      <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Text style={styles.headerIcon}>⚡</Text>
-              <View>
-                <Text style={styles.headerTitle}>Hermes</Text>
-                <Text style={styles.headerSubtitle}>Assistente Operacional</Text>
-              </View>
-            </View>
-            <VoiceToggle />
-          </View>
-
-          {/* Messages */}
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ChatBubble
-                message={item}
-                onButtonPress={handleButtonPress}
-                onSuggestionPress={handleSuggestionPress}
-              />
-            )}
-            style={styles.messageList}
-            contentContainerStyle={styles.messageListContent}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+      <ChatHeader onSettings={onOpenSettings} />
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <ChatBubble message={item} onButtonPress={handleAction} onSuggestionPress={sendUser} />
+        )}
+        style={styles.flex}
+        contentContainerStyle={{ paddingVertical: 12, paddingBottom: TAB_BAR_SPACE + insets.bottom }}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+      />
+      <View style={[styles.inputBar, { marginBottom: TAB_BAR_SPACE + insets.bottom - 16 }]}>
+        <View style={[styles.inputContainer, { backgroundColor: theme.glassStrong, borderColor: theme.glassBorder }]}>
+          <TextInput
+            style={[styles.input, { color: theme.textPrimary }]}
+            placeholder="Fale ou digite para a Viper..."
+            placeholderTextColor={theme.textMuted}
+            value={inputText}
+            onChangeText={setInputText}
+            onSubmitEditing={handleSend}
+            returnKeyType="send"
           />
-
-          {/* Input */}
-          <View style={styles.inputBar}>
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Digite algo ou toque nos botões..."
-                placeholderTextColor={colors.textMuted}
-                value={inputText}
-                onChangeText={setInputText}
-                onSubmitEditing={handleSend}
-                returnKeyType="send"
-              />
-              <TouchableOpacity
-                onPress={handleSend}
-                style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]}
-                disabled={!inputText.trim()}
-              >
-                <Text style={styles.sendIcon}>↑</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </LinearGradient>
+          <Pressable
+            onPress={handleSend}
+            style={[styles.send, { backgroundColor: inputText.trim() ? theme.primary : theme.glass }]}
+            disabled={!inputText.trim()}
+          >
+            <Text style={[styles.sendIcon, { color: inputText.trim() ? theme.textOnAccent : theme.textMuted }]}>↑</Text>
+          </Pressable>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  safe: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerIcon: {
-    fontSize: 28,
-  },
-  headerTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  headerSubtitle: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '500',
-    letterSpacing: 0.5,
-  },
-  messageList: {
-    flex: 1,
-  },
-  messageListContent: {
-    paddingVertical: 12,
-  },
-  inputBar: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-  },
+  flex: { flex: 1 },
+  inputBar: { paddingHorizontal: 14 },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    paddingLeft: 16,
-    paddingRight: 4,
+    paddingLeft: 18,
+    paddingRight: 5,
   },
-  input: {
-    flex: 1,
-    color: colors.textPrimary,
-    fontSize: 15,
-    paddingVertical: 12,
-  },
-  sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  sendIcon: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  input: { flex: 1, fontSize: 15.5, paddingVertical: 13 },
+  send: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  sendIcon: { fontSize: 19, fontWeight: '800' },
 });
