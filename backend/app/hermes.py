@@ -121,7 +121,7 @@ async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
             resp = await client.post(_api_url(), json=body, headers=_api_headers())
             if resp.status_code != 200:
                 return {
-                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway está rodando em {config.HERMES_API_URL} (rode `hermes gateway run`)?",
+                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O api-server está ativado e na porta certa ({config.HERMES_API_URL})?",
                     "buttons": None,
                     "suggestions": None,
                     "narrate": False,
@@ -129,9 +129,13 @@ async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
             data = resp.json()
             content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
             return {"text": content or "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
+    except httpx.RequestError:
+        # Gateway/api-server fora do ar → rede de segurança: usa o CLI (mais lento,
+        # sem passos ao vivo, mas FUNCIONA) em vez de devolver erro pro usuário.
+        return await _respond_hermes_cli(payload)
     except Exception as e:  # noqa: BLE001
         return {
-            "text": f"Não consegui falar com o Hermes (API Server): {e}. Verifique se `hermes gateway run` está no ar em {config.HERMES_API_URL}.",
+            "text": f"Não consegui falar com o Hermes (API Server): {e}.",
             "buttons": None,
             "suggestions": None,
             "narrate": False,
