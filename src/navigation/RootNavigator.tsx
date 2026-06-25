@@ -11,6 +11,7 @@ import { TarefasScreen } from '../screens/TarefasScreen';
 import { ProjetosScreen } from '../screens/ProjetosScreen';
 import { MetasScreen } from '../screens/MetasScreen';
 import { ProjetoDetailScreen } from '../screens/ProjetoDetailScreen';
+import { ProjetoEditScreen } from '../screens/ProjetoEditScreen';
 import { ContaScreen } from '../screens/ContaScreen';
 
 export function RootNavigator() {
@@ -18,15 +19,17 @@ export function RootNavigator() {
   const { activeId } = useSpeech();
   const [tab, setTab] = useState<TabKey>('chat');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   const go = (next: TabKey) => {
     setDetailId(null);
+    setEditId(null);
     setShowSettings(false);
     setTab(next);
   };
 
-  const overlay = detailId !== null || showSettings;
+  const overlay = detailId !== null || editId !== null || showSettings;
 
   const renderTab = () => {
     switch (tab) {
@@ -52,8 +55,10 @@ export function RootNavigator() {
       <View style={styles.flex}>
         {showSettings ? (
           <ContaScreen onBack={() => setShowSettings(false)} />
+        ) : editId ? (
+          <ProjetoEditScreen projectId={editId} onClose={() => setEditId(null)} />
         ) : detailId ? (
-          <ProjetoDetailScreen projectId={detailId} onBack={() => setDetailId(null)} />
+          <ProjetoDetailScreen projectId={detailId} onBack={() => setDetailId(null)} onEdit={() => setEditId(detailId)} />
         ) : (
           renderTab()
         )}

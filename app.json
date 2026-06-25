@@ -10,6 +10,7 @@
     "scheme": "viper",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.agneteia.viper",
       "infoPlist": {
         "UIBackgroundModes": ["audio"],
         "NSMicrophoneUsageDescription": "A Viper usa o microfone para comandos de voz.",
@@ -17,6 +18,7 @@
       }
     },
     "android": {
+      "package": "com.agneteia.viper",
       "adaptiveIcon": {
         "backgroundColor": "#0E0E24",
         "foregroundImage": "./assets/android-icon-foreground.png",

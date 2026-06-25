@@ -8,7 +8,7 @@ import React, {
   useRef,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppData, AppSettings, Goal, IconData, Project, Task } from './types';
+import { AgentIntel, AppData, AppSettings, Goal, IconData, Project, Task } from './types';
 import { SEED } from './seed';
 
 const STORAGE_KEY = '@viper/app-data-v1';
@@ -33,6 +33,7 @@ interface AppStoreValue {
   // Projects
   addProject: (p: Pick<Project, 'name'> & Partial<Project>) => void;
   updateProject: (id: string, patch: Partial<Project>) => void;
+  updateProjectIntel: (id: string, patch: Partial<AgentIntel>) => void;
   removeProject: (id: string) => void;
 
   // Icons (works for any object)
@@ -212,6 +213,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const updateProjectIntel = useCallback((id: string, patch: Partial<AgentIntel>) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => (p.id === id ? { ...p, intel: { ...p.intel, ...patch } } : p)),
+    }));
+  }, []);
+
   const removeProject = useCallback((id: string) => {
     setData((d) => ({ ...d, projects: d.projects.filter((p) => p.id !== id) }));
   }, []);
@@ -255,6 +263,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       removeGoal,
       addProject,
       updateProject,
+      updateProjectIntel,
       removeProject,
       setIcon,
       updateSettings,
@@ -273,6 +282,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       removeGoal,
       addProject,
       updateProject,
+      updateProjectIntel,
       removeProject,
       setIcon,
       updateSettings,

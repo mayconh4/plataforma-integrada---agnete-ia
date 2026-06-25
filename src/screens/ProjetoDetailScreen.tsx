@@ -43,7 +43,7 @@ function MiniBar({ label, value, color }: { label: string; value: number; color:
   );
 }
 
-export function ProjetoDetailScreen({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+export function ProjetoDetailScreen({ projectId, onBack, onEdit }: { projectId: string; onBack: () => void; onEdit: () => void }) {
   const { theme } = useTheme();
   const { data } = useStore();
   const insets = useSafeAreaInsets();
@@ -90,6 +90,9 @@ export function ProjetoDetailScreen({ projectId, onBack }: { projectId: string; 
               <Text style={[styles.status, { color: theme.textSecondary }]}>{project.description}</Text>
             </View>
           </View>
+          <Pressable onPress={onEdit} style={[styles.editBtn, { borderColor: theme.primary, backgroundColor: theme.primarySoft }]} hitSlop={8}>
+            <Text style={[styles.editTxt, { color: theme.primary }]}>✎ Editar</Text>
+          </Pressable>
         </View>
 
         {/* Key metrics */}
@@ -163,6 +166,8 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   dot: { width: 7, height: 7, borderRadius: 4 },
   status: { fontSize: 13, flex: 1 },
+  editBtn: { paddingHorizontal: 14, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  editTxt: { fontSize: 13, fontWeight: '700' },
   section: { padding: 18, marginBottom: 14 },
   sectionHead: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 10 },
   sectionTitle: { fontSize: 17, fontWeight: '800' },
