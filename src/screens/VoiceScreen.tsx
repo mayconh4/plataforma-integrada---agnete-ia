@@ -12,6 +12,7 @@ import {
   Modal,
   ScrollView,
   Switch,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -19,7 +20,7 @@ import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage } from '../types/chat';
 import { useHermes } from '../backend/useHermes';
-import { closeProject, openProject, pressSuggestion, sendMessage, setServerUrl, setVoice, signOut } from '../backend/store';
+import { closeProject, openProject, pressSuggestion, refreshHistory, sendMessage, setServerUrl, setVoice, signOut } from '../backend/store';
 import { narrate, speak } from '../services/voiceService';
 import { useVoiceInput } from '../services/speech';
 import { VOICE_OPTIONS } from '../lib/voicePref';
@@ -46,11 +47,21 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: string }[] = [
 export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
   const { colors, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { messages, thinking, status, activeProject, wsUrl, voice } = useHermes();
+  const { messages, thinking, liveStatus, status, activeProject, wsUrl, voice } = useHermes();
   const [inputText, setInputText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverInput, setServerInput] = useState('');
   const [alwaysOn, setAlwaysOn] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshHistory();
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const lastSpokenId = useRef<string | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -186,7 +197,13 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
             style={styles.messageList}
             contentContainerStyle={styles.messageListContent}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            ListFooterComponent={thinking ? <Text style={styles.typing}>Viper está pensando…</Text> : null}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
+            ListFooterComponent={thinking ? (
+              <View style={styles.typingRow}>
+                <Text style={styles.typingDot}>●</Text>
+                <Text style={styles.typing}>{liveStatus || 'Viper está pensando…'}</Text>
+              </View>
+            ) : null}
           />
         )}
 
@@ -326,7 +343,9 @@ const makeStyles = (colors: Palette) =>
     heroPrompt: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', textAlign: 'center' },
     messageList: { flex: 1 },
     messageListContent: { paddingVertical: 12 },
-    typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 24, paddingVertical: 8 },
+    typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingVertical: 8 },
+    typingDot: { color: colors.accent, fontSize: 10 },
+    typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', flex: 1 },
     quickRow: { maxHeight: 46, flexGrow: 0 },
     quickContent: { paddingHorizontal: 12, gap: 8, alignItems: 'center' },
     quickChip: { backgroundColor: colors.glassBg, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: colors.glassBorder },

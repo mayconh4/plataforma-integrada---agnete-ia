@@ -1,4 +1,5 @@
-import type { Session } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
+import type { Session, RealtimeChannel } from '@supabase/supabase-js';
 import { ChatMessage } from '../types/chat';
 import { Settings } from './types';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
@@ -26,6 +27,7 @@ export interface HermesUiState {
   authError: string | null;
   status: ConnStatus; // conexão com o Hermes
   thinking: boolean; // Hermes processando
+  liveStatus: string; // "o que está sendo feito" em tempo real
   messages: ChatMessage[];
   settings: Settings;
   activeProject: string | null; // projeto aberto (navegação)
@@ -36,12 +38,13 @@ export interface HermesUiState {
 const defaultSettings: Settings = { voiceEnabled: true, preferredModel: 'claude' };
 
 let state: HermesUiState = {
-  configured: isSupabaseConfigured, // a URL do Hermes pode ser definida no app
+  configured: isSupabaseConfigured,
   ready: false,
   session: null,
   authError: null,
   status: 'idle',
   thinking: false,
+  liveStatus: '',
   messages: [],
   settings: defaultSettings,
   activeProject: null,
@@ -52,6 +55,7 @@ let state: HermesUiState = {
 const listeners = new Set<() => void>();
 let initialized = false;
 let connectedUserId: string | null = null;
+let messagesChannel: RealtimeChannel | null = null;
 
 function set(partial: Partial<HermesUiState>): void {
   state = { ...state, ...partial };
@@ -88,8 +92,32 @@ function toMessage(r: any): ChatMessage {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** Adiciona uma mensagem, ignorando duplicatas por id (idempotente). */
 function appendMessage(msg: ChatMessage): void {
+  if (state.messages.some((m) => m.id === msg.id)) return;
   set({ messages: [...state.messages, msg] });
+}
+
+/**
+ * Trata uma mensagem vinda do Supabase Realtime. Reconcilia a bolha otimista do
+ * usuário (id local) com a linha persistida (id do servidor) para não duplicar.
+ */
+function handleInserted(row: unknown): void {
+  const msg = toMessage(row);
+  if (!msg.id || !msg.text) return;
+
+  if (msg.role === 'user') {
+    const idx = state.messages.findIndex((m) => m.id.startsWith('user_') && m.text === msg.text);
+    if (idx >= 0) {
+      const copy = [...state.messages];
+      copy[idx] = { ...copy[idx], id: msg.id, timestamp: msg.timestamp };
+      set({ messages: copy });
+      return;
+    }
+  }
+
+  appendMessage(msg);
+  if (msg.role === 'hermes') set({ thinking: false, liveStatus: '' });
 }
 
 // ---------------------------------------------------------------------------
@@ -98,21 +126,69 @@ function appendMessage(msg: ChatMessage): void {
 
 configureConn({
   onStatus: (s) => set({ status: s }),
-  onThinking: () => set({ thinking: true }),
+  onThinking: () => set({ thinking: true, liveStatus: 'Pensando…' }),
+  onStep: (text) => set({ thinking: true, liveStatus: text }),
+  onReady: () => {
+    // Reconectou: o app pode ter perdido respostas enquanto esteve fechado.
+    void refreshHistory();
+  },
   onMessage: (m: IncomingMessage) => {
-    set({ thinking: false });
+    set({ thinking: false, liveStatus: '' });
     appendMessage(toMessage(m));
   },
 });
 
-async function loadHistory(userId: string): Promise<void> {
+async function fetchHistory(userId: string): Promise<ChatMessage[]> {
   const { data } = await supabase
     .from('messages')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: true })
     .limit(200);
-  set({ messages: (data ?? []).map(toMessage) });
+  return (data ?? []).map(toMessage);
+}
+
+async function loadHistory(userId: string): Promise<void> {
+  set({ messages: await fetchHistory(userId) });
+}
+
+/**
+ * Recarrega o histórico do Supabase (fonte da verdade) preservando as bolhas
+ * otimistas locais ainda não persistidas. Chamado ao voltar pro app e ao
+ * reconectar — é o que faz a resposta reaparecer mesmo se você fechou o app.
+ */
+export async function refreshHistory(): Promise<void> {
+  const userId = state.session?.user.id;
+  if (!userId) return;
+  const server = await fetchHistory(userId);
+  const pending = state.messages.filter(
+    (m) => (m.id.startsWith('user_') || m.id.startsWith('err_')) && !server.some((s) => s.role === m.role && s.text === m.text),
+  );
+  set({ messages: [...server, ...pending], thinking: false, liveStatus: '' });
+}
+
+/** Assina o Supabase Realtime para receber novas mensagens ao vivo. */
+function subscribeMessages(userId: string): void {
+  if (messagesChannel) {
+    void supabase.removeChannel(messagesChannel);
+    messagesChannel = null;
+  }
+  messagesChannel = supabase
+    .channel(`messages-${userId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'messages', filter: `user_id=eq.${userId}` },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (payload: any) => handleInserted(payload.new),
+    )
+    .subscribe();
+}
+
+function unsubscribeMessages(): void {
+  if (messagesChannel) {
+    void supabase.removeChannel(messagesChannel);
+    messagesChannel = null;
+  }
 }
 
 async function loadSettings(userId: string): Promise<void> {
@@ -127,12 +203,14 @@ async function onSession(session: Session | null): Promise<void> {
   if (userId && userId !== connectedUserId) {
     connectedUserId = userId;
     await Promise.all([loadHistory(userId), loadSettings(userId)]);
+    subscribeMessages(userId);
     if (hasWsUrl()) connectWs(session!.access_token);
     else set({ status: 'offline' });
   } else if (!userId && connectedUserId) {
     connectedUserId = null;
+    unsubscribeMessages();
     disconnectWs();
-    set({ messages: [], settings: defaultSettings, status: 'idle', activeProject: null });
+    set({ messages: [], settings: defaultSettings, status: 'idle', activeProject: null, liveStatus: '' });
   }
 }
 
@@ -143,6 +221,11 @@ export async function init(): Promise<void> {
 
   await loadVoice();
   set({ voice: getCachedVoice() });
+
+  // Ao voltar pro app, recarrega o histórico (pega respostas que chegaram fechado).
+  AppState.addEventListener('change', (s) => {
+    if (s === 'active') void refreshHistory();
+  });
 
   if (!state.configured) {
     set({ ready: true });
@@ -225,7 +308,7 @@ export function sendMessage(text: string): void {
 
   const ok = wsSend({ type: 'user_message', text: trimmed, project: state.activeProject });
   if (ok) {
-    set({ thinking: true });
+    set({ thinking: true, liveStatus: 'Pensando…' });
   } else {
     appendMessage({
       id: localId('err'),

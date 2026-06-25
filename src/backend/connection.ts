@@ -38,6 +38,10 @@ interface Handlers {
   onStatus: (s: ConnStatus) => void;
   onThinking: () => void;
   onMessage: (m: IncomingMessage) => void;
+  /** Progresso em tempo real ("o que está sendo feito"), quando o backend envia. */
+  onStep?: (text: string) => void;
+  /** Conectou/reconectou (sinal para recarregar o histórico do Supabase). */
+  onReady?: () => void;
 }
 
 let ws: WebSocket | null = null;
@@ -63,9 +67,17 @@ function open(): void {
   socket.onmessage = (event) => {
     try {
       const payload = JSON.parse(event.data as string);
-      if (payload.type === 'ready') handlers?.onStatus('online');
-      else if (payload.type === 'thinking') handlers?.onThinking();
-      else if (payload.type === 'message' && payload.message) handlers?.onMessage(payload.message);
+      if (payload.type === 'ready') {
+        handlers?.onStatus('online');
+        handlers?.onReady?.();
+      } else if (payload.type === 'thinking') {
+        handlers?.onThinking();
+      } else if (payload.type === 'step' || payload.type === 'status' || payload.type === 'progress' || payload.type === 'tool') {
+        const t = payload.text ?? payload.message ?? payload.detail;
+        if (typeof t === 'string' && t.trim()) handlers?.onStep?.(t.trim());
+      } else if (payload.type === 'message' && payload.message) {
+        handlers?.onMessage(payload.message);
+      }
     } catch {
       // ignora frames inválidos
     }
