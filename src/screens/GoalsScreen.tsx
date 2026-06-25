@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GlassCard } from '../components/Glass';
@@ -6,7 +6,8 @@ import { TOP_INSET, TAB_BAR_SPACE } from '../components/ScreenShell';
 import { supabase } from '../lib/supabase';
 import { getState } from '../backend/store';
 import { PRIORITY_LABEL, Priority } from '../backend/types';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
+import { Palette } from '../theme/colors';
 
 interface Row {
   id: string;
@@ -16,6 +17,8 @@ interface Row {
 }
 
 export function GoalsScreen({ onAskViper }: { onAskViper: (text: string) => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [rows, setRows] = useState<Row[]>([]);
   const userId = getState().session?.user.id;
 
@@ -49,7 +52,7 @@ export function GoalsScreen({ onAskViper }: { onAskViper: (text: string) => void
         ) : (
           rows.map((r) => (
             <GlassCard key={r.id} glow={r.priority === 'urgent'} style={styles.card}>
-              <View style={[styles.dot, r.priority === 'urgent' ? styles.dotUrgent : styles.dotHigh]} />
+              <View style={[styles.dot, { backgroundColor: r.priority === 'urgent' ? colors.priorityUrgent : colors.priorityHigh }]} />
               <View style={styles.body}>
                 <Text style={styles.name}>{r.title}</Text>
                 <Text style={styles.meta}>Prioridade {PRIORITY_LABEL[r.priority]}</Text>
@@ -62,19 +65,18 @@ export function GoalsScreen({ onAskViper }: { onAskViper: (text: string) => void
   );
 }
 
-const styles = StyleSheet.create({
-  g: { flex: 1 },
-  content: { paddingHorizontal: 18, paddingTop: TOP_INSET + 18, paddingBottom: TAB_BAR_SPACE },
-  title: { color: colors.textPrimary, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: colors.textMuted, fontSize: 14, marginTop: 4, marginBottom: 18 },
-  empty: { padding: 22, alignItems: 'center', gap: 10 },
-  emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
-  emptyHint: { color: colors.accent, fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, marginBottom: 12 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  dotUrgent: { backgroundColor: colors.danger },
-  dotHigh: { backgroundColor: '#F5A623' },
-  body: { flex: 1 },
-  name: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
-  meta: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
-});
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
+    g: { flex: 1 },
+    content: { paddingHorizontal: 18, paddingTop: TOP_INSET + 18, paddingBottom: TAB_BAR_SPACE },
+    title: { color: colors.textPrimary, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
+    subtitle: { color: colors.textMuted, fontSize: 14, marginTop: 4, marginBottom: 18 },
+    empty: { padding: 22, alignItems: 'center', gap: 10 },
+    emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
+    emptyHint: { color: colors.accent, fontSize: 13, fontWeight: '700', textAlign: 'center' },
+    card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, marginBottom: 12 },
+    dot: { width: 12, height: 12, borderRadius: 6 },
+    body: { flex: 1 },
+    name: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
+    meta: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
+  });

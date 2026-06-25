@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -11,18 +11,23 @@ import {
   Animated,
   Modal,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage } from '../types/chat';
 import { useHermes } from '../backend/useHermes';
 import { closeProject, openProject, pressSuggestion, sendMessage, setServerUrl, setVoice, signOut } from '../backend/store';
-import { speak } from '../services/voiceService';
+import { narrate, speak } from '../services/voiceService';
 import { useVoiceInput } from '../services/speech';
 import { VOICE_OPTIONS } from '../lib/voicePref';
 import { TOP_INSET } from '../components/ScreenShell';
-import { colors } from '../theme/colors';
+import { useTheme, ThemeMode } from '../theme/ThemeContext';
+import { Palette } from '../theme/colors';
+import { applyAlwaysOn } from '../services/keepAlive';
+import { loadAlwaysOn, saveAlwaysOn } from '../lib/appPrefs';
 
 const statusLabel: Record<string, string> = {
   idle: 'Conectando…',
@@ -32,15 +37,27 @@ const statusLabel: Record<string, string> = {
 };
 
 const QUICK_REPLIES = ['Ver minhas tarefas', 'Resumo do dia', 'Status do sistema', 'Criar uma tarefa'];
+const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: string }[] = [
+  { mode: 'light', label: 'Claro', icon: '☀️' },
+  { mode: 'dark', label: 'Escuro', icon: '🌙' },
+  { mode: 'system', label: 'Sistema', icon: '⚙️' },
+];
 
 export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
+  const { colors, mode, setMode } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { messages, thinking, status, activeProject, wsUrl, voice } = useHermes();
   const [inputText, setInputText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverInput, setServerInput] = useState('');
+  const [alwaysOn, setAlwaysOn] = useState(false);
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const lastSpokenId = useRef<string | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    loadAlwaysOn().then(setAlwaysOn);
+  }, []);
 
   const openSettings = () => {
     setServerInput(wsUrl);
@@ -52,7 +69,13 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
   };
   const chooseVoice = async (id: string) => {
     await setVoice(id);
-    speak('Olá Maycon, essa é a minha voz.');
+    speak('Olá, essa é a minha voz.');
+  };
+  const toggleAlwaysOn = (v: boolean) => {
+    setAlwaysOn(v);
+    saveAlwaysOn(v);
+    applyAlwaysOn(v).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
   const { listening, partial, start, stop } = useVoiceInput((t) => sendMessage(t));
@@ -61,7 +84,7 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
     const last = messages[messages.length - 1];
     if (last && last.role === 'hermes' && last.narrate && last.id !== lastSpokenId.current) {
       lastSpokenId.current = last.id;
-      speak(last.text);
+      narrate(last.id, last.text);
     }
     if (messages.length) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
   }, [messages]);
@@ -102,7 +125,7 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
   };
 
   const isEmpty = messages.length === 0;
-  const statusColor = status === 'online' ? colors.accent : status === 'offline' ? colors.danger : '#F5A623';
+  const statusColor = status === 'online' ? colors.accent : status === 'offline' ? colors.danger : colors.warning;
 
   return (
     <LinearGradient colors={[colors.backgroundGradientStart, colors.backgroundGradientEnd]} style={styles.gradient}>
@@ -167,14 +190,8 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
           />
         )}
 
-        {/* Respostas rápidas (sem precisar digitar) */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.quickRow}
-          contentContainerStyle={styles.quickContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        {/* Respostas rápidas */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickRow} contentContainerStyle={styles.quickContent} keyboardShouldPersistTaps="handled">
           {QUICK_REPLIES.map((q) => (
             <TouchableOpacity key={q} style={styles.quickChip} onPress={() => sendMessage(q)}>
               <Text style={styles.quickChipText}>{q}</Text>
@@ -200,60 +217,83 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
               returnKeyType="send"
               editable={!listening}
             />
-            <TouchableOpacity
-              onPress={handleSend}
-              style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]}
-              disabled={!inputText.trim()}
-            >
+            <TouchableOpacity onPress={handleSend} style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]} disabled={!inputText.trim()}>
               <Text style={styles.sendIcon}>↑</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Modal: configurações (voz + servidor) */}
+        {/* Modal: configurações (tema + voz + sempre ativo + servidor) */}
         <Modal visible={showSettings} transparent animationType="fade" onRequestClose={() => setShowSettings(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Configurações</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalTitle}>Configurações</Text>
 
-              <Text style={styles.modalSection}>Voz da Viper</Text>
-              <Text style={styles.modalHint}>Toque para ouvir uma prévia e definir a voz.</Text>
-              <View style={styles.voiceGrid}>
-                {VOICE_OPTIONS.map((v) => {
-                  const selected = v.id === voice;
-                  return (
-                    <TouchableOpacity
-                      key={v.id}
-                      onPress={() => void chooseVoice(v.id)}
-                      style={[styles.voiceChip, selected && styles.voiceChipActive]}
-                    >
-                      <Text style={[styles.voiceChipText, selected && styles.voiceChipTextActive]}>
-                        {v.gender === 'f' ? '♀' : '♂'} {v.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                <Text style={styles.modalSection}>Tema</Text>
+                <Text style={styles.modalHint}>Claro inspirado no Claude, escuro em vidro profundo.</Text>
+                <View style={styles.themeRow}>
+                  {THEME_OPTIONS.map((opt) => {
+                    const selected = mode === opt.mode;
+                    return (
+                      <TouchableOpacity
+                        key={opt.mode}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
+                          setMode(opt.mode);
+                        }}
+                        style={[styles.themeChip, selected && styles.themeChipActive]}
+                      >
+                        <Text style={styles.themeIcon}>{opt.icon}</Text>
+                        <Text style={[styles.themeLabel, selected && styles.themeLabelActive]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
-              <Text style={styles.modalSection}>Servidor da Viper</Text>
-              <Text style={styles.modalHint}>URL WebSocket do túnel, terminando em /ws.</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="wss://...ngrok-free.dev/ws"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={serverInput}
-                onChangeText={setServerInput}
-              />
-              <View style={styles.modalRow}>
-                <TouchableOpacity onPress={() => setShowSettings(false)} style={styles.modalBtnGhost}>
-                  <Text style={styles.modalBtnGhostText}>Fechar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={saveServer} style={styles.modalBtn}>
-                  <Text style={styles.modalBtnText}>Salvar e conectar</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={styles.rowBetween}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.modalSection}>Sempre ativo</Text>
+                    <Text style={styles.modalHint}>Continua falando e trabalhando com a tela apagada. Só para ao fechar o app.</Text>
+                  </View>
+                  <Switch value={alwaysOn} onValueChange={toggleAlwaysOn} trackColor={{ false: colors.glassBorder, true: colors.primary }} thumbColor="#fff" />
+                </View>
+
+                <Text style={styles.modalSection}>Voz da Viper</Text>
+                <Text style={styles.modalHint}>Toque para ouvir uma prévia e definir a voz.</Text>
+                <View style={styles.voiceGrid}>
+                  {VOICE_OPTIONS.map((v) => {
+                    const selected = v.id === voice;
+                    return (
+                      <TouchableOpacity key={v.id} onPress={() => void chooseVoice(v.id)} style={[styles.voiceChip, selected && styles.voiceChipActive]}>
+                        <Text style={[styles.voiceChipText, selected && styles.voiceChipTextActive]}>
+                          {v.gender === 'f' ? '♀' : '♂'} {v.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.modalSection}>Servidor da Viper</Text>
+                <Text style={styles.modalHint}>URL WebSocket do túnel, terminando em /ws.</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="wss://...ngrok-free.dev/ws"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={serverInput}
+                  onChangeText={setServerInput}
+                />
+                <View style={styles.modalRow}>
+                  <TouchableOpacity onPress={() => setShowSettings(false)} style={styles.modalBtnGhost}>
+                    <Text style={styles.modalBtnGhostText}>Fechar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={saveServer} style={styles.modalBtn}>
+                    <Text style={styles.modalBtnText}>Salvar e conectar</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -262,121 +302,66 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerIcon: { fontSize: 26 },
-  headerTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  headerSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.3 },
-  iconBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
-  iconBtnText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  offlineBanner: {
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,92,114,0.15)',
-    borderWidth: 1,
-    borderColor: colors.danger,
-  },
-  offlineText: { color: colors.textPrimary, fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  projectBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: colors.primaryGlow,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  projectText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
-  projectClose: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
-  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
-  heroTitle: { color: colors.textMuted, fontSize: 16, marginBottom: 6 },
-  heroPrompt: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', textAlign: 'center' },
-  messageList: { flex: 1 },
-  messageListContent: { paddingVertical: 12 },
-  typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 24, paddingVertical: 8 },
-  quickRow: { maxHeight: 46, flexGrow: 0 },
-  quickContent: { paddingHorizontal: 12, gap: 8, alignItems: 'center' },
-  quickChip: {
-    backgroundColor: colors.glassBg,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: colors.glassBorder,
-  },
-  quickChipText: { color: colors.textSecondary, fontSize: 12.5, fontWeight: '600' },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-  },
-  mic: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primaryGlow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  micActive: { backgroundColor: colors.danger },
-  micIcon: { fontSize: 22 },
-  inputContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.glassBg,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.glassBorder,
-    paddingLeft: 16,
-    paddingRight: 4,
-  },
-  input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 12 },
-  sendButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
-  sendButtonActive: { backgroundColor: colors.primary },
-  sendIcon: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 20 },
-  modalTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  modalSection: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: 0.3 },
-  modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  voiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
-  voiceChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.04)' },
-  voiceChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryGlow },
-  voiceChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
-  voiceChipTextActive: { color: colors.textPrimary, fontWeight: '700' },
-  modalInput: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', color: colors.textPrimary, fontSize: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
-  modalRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  modalBtnGhost: { paddingHorizontal: 14, paddingVertical: 10 },
-  modalBtnGhostText: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
-  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.primary },
-  modalBtnText: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
-});
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
+    gradient: { flex: 1 },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.glassBorder },
+    headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    headerIcon: { fontSize: 26 },
+    headerTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
+    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    statusDot: { width: 7, height: 7, borderRadius: 4 },
+    headerSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.3 },
+    iconBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.glassBorder },
+    iconBtnText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+    offlineBanner: { marginHorizontal: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,92,114,0.15)', borderWidth: 1, borderColor: colors.danger },
+    offlineText: { color: colors.textPrimary, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+    projectBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.primaryGlow, borderWidth: 1, borderColor: colors.primary },
+    projectText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+    projectClose: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
+    hero: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+    heroTitle: { color: colors.textMuted, fontSize: 16, marginBottom: 6 },
+    heroPrompt: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', textAlign: 'center' },
+    messageList: { flex: 1 },
+    messageListContent: { paddingVertical: 12 },
+    typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 24, paddingVertical: 8 },
+    quickRow: { maxHeight: 46, flexGrow: 0 },
+    quickContent: { paddingHorizontal: 12, gap: 8, alignItems: 'center' },
+    quickChip: { backgroundColor: colors.glassBg, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: colors.glassBorder },
+    quickChipText: { color: colors.textSecondary, fontSize: 12.5, fontWeight: '600' },
+    inputBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingTop: 10 },
+    mic: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', shadowColor: colors.primaryGlow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 12, elevation: 8 },
+    micActive: { backgroundColor: colors.danger },
+    micIcon: { fontSize: 22 },
+    inputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.glassBg, borderRadius: 24, borderWidth: 1, borderColor: colors.glassBorder, paddingLeft: 16, paddingRight: 4 },
+    input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 12 },
+    sendButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.glassBgStrong, alignItems: 'center', justifyContent: 'center' },
+    sendButtonActive: { backgroundColor: colors.primary },
+    sendIcon: { color: colors.textOnAccent, fontSize: 18, fontWeight: '700' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+    modalCard: { width: '100%', maxHeight: '86%', backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.glassBorder, padding: 20 },
+    modalTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 12 },
+    modalSection: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: 0.3, marginTop: 4 },
+    modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
+    rowBetween: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8, marginBottom: 8 },
+    flex1: { flex: 1 },
+    themeRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+    themeChip: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: colors.glassBorder, backgroundColor: colors.glassBg },
+    themeChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryGlow },
+    themeIcon: { fontSize: 20 },
+    themeLabel: { color: colors.textSecondary, fontSize: 12.5, fontWeight: '600' },
+    themeLabelActive: { color: colors.textPrimary, fontWeight: '700' },
+    voiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+    voiceChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: colors.glassBorder, backgroundColor: colors.glassBg },
+    voiceChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryGlow },
+    voiceChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+    voiceChipTextActive: { color: colors.textPrimary, fontWeight: '700' },
+    modalInput: { backgroundColor: colors.glassBg, borderRadius: 12, borderWidth: 1, borderColor: colors.glassBorder, color: colors.textPrimary, fontSize: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
+    modalRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+    modalBtnGhost: { paddingHorizontal: 14, paddingVertical: 10 },
+    modalBtnGhostText: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+    modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.primary },
+    modalBtnText: { color: colors.textOnAccent, fontSize: 14, fontWeight: '700' },
+  });

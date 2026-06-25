@@ -1,14 +1,9 @@
-import React, { useRef } from 'react';
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  Animated,
-  View,
-} from 'react-native';
+import React, { useRef, useMemo } from 'react';
+import { TouchableOpacity, Text, StyleSheet, Animated, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
+import { Palette } from '../theme/colors';
 import { ContextButton } from '../types/chat';
 
 interface Props {
@@ -17,6 +12,8 @@ interface Props {
 }
 
 export function LiquidGlassButton({ button, onPress }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
@@ -24,7 +21,7 @@ export function LiquidGlassButton({ button, onPress }: Props) {
     primary: { borderColor: colors.primary, shadowColor: colors.primaryGlow },
     secondary: { borderColor: colors.glassBorder, shadowColor: colors.glassShadow },
     danger: { borderColor: colors.danger, shadowColor: 'rgba(255, 71, 87, 0.3)' },
-    ghost: { borderColor: 'rgba(255,255,255,0.1)', shadowColor: 'transparent' },
+    ghost: { borderColor: colors.glassBorder, shadowColor: 'transparent' },
   };
 
   const variant = button.variant || 'secondary';
@@ -36,14 +33,12 @@ export function LiquidGlassButton({ button, onPress }: Props) {
       Animated.timing(opacity, { toValue: 0.8, duration: 100, useNativeDriver: true }),
     ]).start();
   };
-
   const handlePressOut = () => {
     Animated.parallel([
       Animated.spring(scale, { toValue: 1, friction: 3, tension: 400, useNativeDriver: true }),
       Animated.timing(opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
     ]).start();
   };
-
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress(button.action, button.label);
@@ -56,25 +51,13 @@ export function LiquidGlassButton({ button, onPress }: Props) {
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         activeOpacity={1}
-        style={[
-          styles.container,
-          {
-            borderColor: style.borderColor,
-            shadowColor: style.shadowColor,
-          },
-        ]}
+        style={[styles.container, { borderColor: style.borderColor, shadowColor: style.shadowColor }]}
       >
-        <BlurView intensity={40} tint="dark" style={styles.blur}>
+        <BlurView intensity={40} tint={colors.blurTint} style={styles.blur}>
           <View style={styles.innerHighlight} />
           <View style={styles.content}>
             {button.icon && <Text style={styles.icon}>{button.icon}</Text>}
-            <Text
-              style={[
-                styles.label,
-                variant === 'primary' && styles.labelPrimary,
-                variant === 'danger' && styles.labelDanger,
-              ]}
-            >
+            <Text style={[styles.label, variant === 'primary' && styles.labelPrimary, variant === 'danger' && styles.labelDanger]}>
               {button.label}
             </Text>
           </View>
@@ -84,54 +67,15 @@ export function LiquidGlassButton({ button, onPress }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {
-    marginHorizontal: 4,
-    marginVertical: 4,
-  },
-  container: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  blur: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    position: 'relative',
-  },
-  innerHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  icon: {
-    fontSize: 16,
-  },
-  label: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  labelPrimary: {
-    color: '#B8B3FF',
-  },
-  labelDanger: {
-    color: '#FF7B86',
-  },
-});
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
+    wrapper: { marginHorizontal: 4, marginVertical: 4 },
+    container: { borderRadius: 16, borderWidth: 1, overflow: 'hidden', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
+    blur: { paddingHorizontal: 18, paddingVertical: 12, position: 'relative' },
+    innerHighlight: { position: 'absolute', top: 0, left: 0, right: 0, height: '50%', backgroundColor: colors.glassHighlight, opacity: 0.18, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+    content: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    icon: { fontSize: 16 },
+    label: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', letterSpacing: 0.3 },
+    labelPrimary: { color: colors.primary },
+    labelDanger: { color: colors.danger },
+  });

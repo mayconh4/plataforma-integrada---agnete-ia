@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, RefreshControl, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GlassCard } from '../components/Glass';
@@ -6,7 +6,8 @@ import { TOP_INSET, TAB_BAR_SPACE } from '../components/ScreenShell';
 import { supabase } from '../lib/supabase';
 import { getState } from '../backend/store';
 import { PRIORITY_ICON, PRIORITY_LABEL, PRIORITY_ORDER, Priority } from '../backend/types';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
+import { Palette } from '../theme/colors';
 
 interface Row {
   id: string;
@@ -16,6 +17,8 @@ interface Row {
 }
 
 export function TasksScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [rows, setRows] = useState<Row[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const userId = getState().session?.user.id;
@@ -91,27 +94,22 @@ export function TasksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  g: { flex: 1 },
-  content: { paddingHorizontal: 18, paddingTop: TOP_INSET + 18, paddingBottom: TAB_BAR_SPACE },
-  title: { color: colors.textPrimary, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: colors.textMuted, fontSize: 14, marginTop: 4, marginBottom: 18 },
-  sectionLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', marginTop: 18, marginBottom: 8 },
-  empty: { padding: 22, alignItems: 'center' },
-  emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, marginBottom: 10 },
-  cardDone: { opacity: 0.6 },
-  cardBody: { flex: 1 },
-  cardTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
-  titleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
-  cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.glassBorder,
-  },
-  checkboxDone: { backgroundColor: colors.accent, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  check: { color: '#04221C', fontSize: 14, fontWeight: '900' },
-});
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
+    g: { flex: 1 },
+    content: { paddingHorizontal: 18, paddingTop: TOP_INSET + 18, paddingBottom: TAB_BAR_SPACE },
+    title: { color: colors.textPrimary, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
+    subtitle: { color: colors.textMuted, fontSize: 14, marginTop: 4, marginBottom: 18 },
+    sectionLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', marginTop: 18, marginBottom: 8 },
+    empty: { padding: 22, alignItems: 'center' },
+    emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
+    card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, marginBottom: 10 },
+    cardDone: { opacity: 0.6 },
+    cardBody: { flex: 1 },
+    cardTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+    titleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
+    cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
+    checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: colors.glassBorder },
+    checkboxDone: { backgroundColor: colors.accent, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+    check: { color: colors.textOnAccent, fontSize: 14, fontWeight: '900' },
+  });
