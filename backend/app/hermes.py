@@ -96,27 +96,42 @@ def _session_id(user_id: Optional[str]) -> str:
 # Mesmo núcleo do Telegram (tools, skills, memória). POST /chat.
 # ---------------------------------------------------------------------------
 
+def _api_url() -> str:
+    return f"{config.HERMES_API_URL}/v1/chat/completions"
+
+
+def _api_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {config.HERMES_API_KEY}", "Content-Type": "application/json"}
+
+
+def _api_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
+    """Histórico + mensagem no formato OpenAI. Sem system prompt: o Hermes Agent
+    já tem a própria persona/memória (mesmo cérebro do Telegram)."""
+    msgs: list[dict[str, str]] = []
+    for m in payload.get("history") or []:
+        msgs.append({"role": "assistant" if m.get("role") == "hermes" else "user", "content": m.get("text", "")})
+    msgs.append({"role": "user", "content": payload["text"]})
+    return msgs
+
+
 async def _respond_hermes_api(payload: dict[str, Any]) -> dict[str, Any]:
-    url = f"{config.HERMES_API_URL}/chat"
-    body = {
-        "message": payload["text"],
-        "session_id": _session_id(payload.get("user_id")),
-        "stream": False,
-    }
+    body = {"model": config.HERMES_API_MODEL, "messages": _api_messages(payload), "stream": False}
     try:
         async with httpx.AsyncClient(timeout=config.HERMES_CLI_TIMEOUT) as client:
-            resp = await client.post(url, json=body)
+            resp = await client.post(_api_url(), json=body, headers=_api_headers())
             if resp.status_code != 200:
                 return {
-                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway HTTP está rodando em {config.HERMES_API_URL}?",
+                    "text": f"O Hermes (API Server) respondeu {resp.status_code}. O gateway está rodando em {config.HERMES_API_URL} (rode `hermes gateway run`)?",
                     "buttons": None,
                     "suggestions": None,
                     "narrate": False,
                 }
-            return normalize_reply(resp.json())
+            data = resp.json()
+            content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
+            return {"text": content or "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
     except Exception as e:  # noqa: BLE001
         return {
-            "text": f"Não consegui falar com o Hermes (API Server): {e}. Verifique se o gateway está no ar.",
+            "text": f"Não consegui falar com o Hermes (API Server): {e}. Verifique se `hermes gateway run` está no ar em {config.HERMES_API_URL}.",
             "buttons": None,
             "suggestions": None,
             "narrate": False,
@@ -345,6 +360,16 @@ def _interpret_sse_event(ev: Any) -> tuple[str, Optional[str], Optional[dict[str
     if not isinstance(ev, dict):
         return ("", None, None)
 
+    # Evento de progresso do Hermes (object == "hermes.tool.progress").
+    obj = str(ev.get("object") or "").lower()
+    if "progress" in obj or "tool" in obj:
+        tool = ev.get("tool") or ev.get("name")
+        status = ev.get("status") or ev.get("state")
+        txt = ev.get("text") or ev.get("message") or ev.get("detail")
+        if tool and status:
+            return ("step", f"{tool} · {status}", None)
+        return ("step", str(txt or tool or "executando…").strip(), None)
+
     # OpenAI-compatível (choices[].delta.content)
     choices = ev.get("choices")
     if isinstance(choices, list) and choices:
@@ -380,16 +405,18 @@ def _interpret_sse_event(ev: Any) -> tuple[str, Optional[str], Optional[dict[str
 
 
 async def _respond_hermes_api_stream(payload: dict[str, Any]):
-    """Gera eventos {'type': 'step'|'partial'|'final', ...} a partir do gateway."""
-    url = f"{config.HERMES_API_URL}/chat"
-    body = {"message": payload["text"], "session_id": _session_id(payload.get("user_id")), "stream": True}
+    """Gera eventos {'type': 'step'|'partial'|'final', ...} a partir do gateway.
+    Endpoint OpenAI-compatível: chunks `chat.completion.chunk` (texto) +
+    eventos `hermes.tool.progress` (o que o agente está fazendo)."""
+    body = {"model": config.HERMES_API_MODEL, "messages": _api_messages(payload), "stream": True}
+    headers = {**_api_headers(), "Accept": "text/event-stream"}
     text_acc = ""
     final_obj: Optional[dict[str, Any]] = None
     produced = False
 
     try:
         async with httpx.AsyncClient(timeout=config.HERMES_CLI_TIMEOUT) as client:
-            async with client.stream("POST", url, json=body) as resp:
+            async with client.stream("POST", _api_url(), json=body, headers=headers) as resp:
                 if resp.status_code == 200:
                     async for raw in resp.aiter_lines():
                         line = (raw or "").strip()

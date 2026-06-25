@@ -34,8 +34,13 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # "openrouter": fallback — este backend conversa direto com a IA via OpenRouter.
 HERMES_BACKEND = os.environ.get("HERMES_BACKEND", "hermes_cli").strip().lower()
 
-# (hermes_api) URL base do gateway API Server do Hermes.
-HERMES_API_URL = os.environ.get("HERMES_API_URL", "http://localhost:8080").strip().rstrip("/")
+# (hermes_api) URL base do gateway API Server do Hermes (NousResearch Hermes Agent).
+# É OpenAI-compatível: POST {HERMES_API_URL}/v1/chat/completions. Porta padrão 8642.
+HERMES_API_URL = os.environ.get("HERMES_API_URL", "http://localhost:8642").strip().rstrip("/")
+# Chave do API Server (header Authorization: Bearer ...). Padrão local do Hermes.
+HERMES_API_KEY = (os.environ.get("API_SERVER_KEY") or os.environ.get("HERMES_API_KEY") or "change-me-local-dev").strip()
+# Nome do modelo exigido pelo endpoint OpenAI-compatível do Hermes.
+HERMES_API_MODEL = os.environ.get("HERMES_API_MODEL", "hermes-agent").strip()
 HERMES_HTTP_URL = os.environ.get("HERMES_HTTP_URL", "").strip()
 HERMES_HTTP_AUTH = os.environ.get("HERMES_HTTP_AUTH", "").strip()  # valor do header Authorization (opcional)
 HERMES_COMMAND = os.environ.get("HERMES_COMMAND", "").strip()
