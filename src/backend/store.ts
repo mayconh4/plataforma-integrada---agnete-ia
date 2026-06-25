@@ -27,7 +27,8 @@ export interface HermesUiState {
   authError: string | null;
   status: ConnStatus; // conexão com o Hermes
   thinking: boolean; // Hermes processando
-  liveStatus: string; // "o que está sendo feito" em tempo real
+  liveSteps: string[]; // "o que está sendo feito" em tempo real (estilo Telegram)
+  partialText: string; // resposta sendo formada (streaming)
   messages: ChatMessage[];
   settings: Settings;
   activeProject: string | null; // projeto aberto (navegação)
@@ -44,7 +45,8 @@ let state: HermesUiState = {
   authError: null,
   status: 'idle',
   thinking: false,
-  liveStatus: '',
+  liveSteps: [],
+  partialText: '',
   messages: [],
   settings: defaultSettings,
   activeProject: null,
@@ -117,7 +119,7 @@ function handleInserted(row: unknown): void {
   }
 
   appendMessage(msg);
-  if (msg.role === 'hermes') set({ thinking: false, liveStatus: '' });
+  if (msg.role === 'hermes') set({ thinking: false, liveSteps: [], partialText: '' });
 }
 
 // ---------------------------------------------------------------------------
@@ -126,14 +128,15 @@ function handleInserted(row: unknown): void {
 
 configureConn({
   onStatus: (s) => set({ status: s }),
-  onThinking: () => set({ thinking: true, liveStatus: 'Pensando…' }),
-  onStep: (text) => set({ thinking: true, liveStatus: text }),
+  onThinking: () => set({ thinking: true, liveSteps: [], partialText: '' }),
+  onStep: (text) => set({ thinking: true, liveSteps: [...state.liveSteps, text].slice(-12) }),
+  onPartial: (text) => set({ thinking: true, partialText: text }),
   onReady: () => {
     // Reconectou: o app pode ter perdido respostas enquanto esteve fechado.
     void refreshHistory();
   },
   onMessage: (m: IncomingMessage) => {
-    set({ thinking: false, liveStatus: '' });
+    set({ thinking: false, liveSteps: [], partialText: '' });
     appendMessage(toMessage(m));
   },
 });
@@ -164,7 +167,7 @@ export async function refreshHistory(): Promise<void> {
   const pending = state.messages.filter(
     (m) => (m.id.startsWith('user_') || m.id.startsWith('err_')) && !server.some((s) => s.role === m.role && s.text === m.text),
   );
-  set({ messages: [...server, ...pending], thinking: false, liveStatus: '' });
+  set({ messages: [...server, ...pending], thinking: false, liveSteps: [], partialText: '' });
 }
 
 /** Assina o Supabase Realtime para receber novas mensagens ao vivo. */
@@ -210,7 +213,7 @@ async function onSession(session: Session | null): Promise<void> {
     connectedUserId = null;
     unsubscribeMessages();
     disconnectWs();
-    set({ messages: [], settings: defaultSettings, status: 'idle', activeProject: null, liveStatus: '' });
+    set({ messages: [], settings: defaultSettings, status: 'idle', activeProject: null, liveSteps: [], partialText: '' });
   }
 }
 
@@ -308,7 +311,7 @@ export function sendMessage(text: string): void {
 
   const ok = wsSend({ type: 'user_message', text: trimmed, project: state.activeProject });
   if (ok) {
-    set({ thinking: true, liveStatus: 'Pensando…' });
+    set({ thinking: true, liveSteps: [], partialText: '' });
   } else {
     appendMessage({
       id: localId('err'),

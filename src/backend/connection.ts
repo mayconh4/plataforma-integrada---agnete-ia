@@ -40,6 +40,8 @@ interface Handlers {
   onMessage: (m: IncomingMessage) => void;
   /** Progresso em tempo real ("o que está sendo feito"), quando o backend envia. */
   onStep?: (text: string) => void;
+  /** Texto da resposta sendo formado (acumulado), quando o backend transmite. */
+  onPartial?: (text: string) => void;
   /** Conectou/reconectou (sinal para recarregar o histórico do Supabase). */
   onReady?: () => void;
 }
@@ -75,6 +77,9 @@ function open(): void {
       } else if (payload.type === 'step' || payload.type === 'status' || payload.type === 'progress' || payload.type === 'tool') {
         const t = payload.text ?? payload.message ?? payload.detail;
         if (typeof t === 'string' && t.trim()) handlers?.onStep?.(t.trim());
+      } else if (payload.type === 'partial') {
+        const t = payload.text ?? payload.message;
+        if (typeof t === 'string') handlers?.onPartial?.(t);
       } else if (payload.type === 'message' && payload.message) {
         handlers?.onMessage(payload.message);
       }

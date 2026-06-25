@@ -324,3 +324,130 @@ async def respond(
     if backend == "python":
         return await _respond_python(payload)
     return await _respond_openrouter(payload)
+
+
+# ---------------------------------------------------------------------------
+# Streaming — "amostragem em tempo real" (estilo Telegram)
+# ---------------------------------------------------------------------------
+#
+# Só o gateway (hermes_api) transmite passos. O parser abaixo é TOLERANTE: aceita
+# SSE ("data: {...}") e NDJSON, e reconhece vários formatos de evento. Se o seu
+# gateway usar nomes diferentes, ajuste _interpret_sse_event — e mesmo que o
+# streaming não funcione, há fallback para a chamada normal (stream=False).
+
+_STEP_TYPES = {"tool", "tool_call", "tool_use", "action", "status", "step", "thinking", "thought", "progress", "log", "reasoning"}
+_CONTENT_TYPES = {"token", "delta", "content", "text", "chunk", "message_delta", "response.delta", "output_text.delta"}
+_FINAL_TYPES = {"message", "final", "done", "complete", "completed", "response", "result", "answer", "response.completed"}
+
+
+def _interpret_sse_event(ev: Any) -> tuple[str, Optional[str], Optional[dict[str, Any]]]:
+    """Retorna (kind, value, extra). kind: 'step'|'content'|'final'|''."""
+    if not isinstance(ev, dict):
+        return ("", None, None)
+
+    # OpenAI-compatível (choices[].delta.content)
+    choices = ev.get("choices")
+    if isinstance(choices, list) and choices:
+        ch = choices[0] or {}
+        delta = ch.get("delta") or {}
+        if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+            return ("content", delta["content"], None)
+        msg = ch.get("message") or {}
+        if isinstance(msg, dict) and isinstance(msg.get("content"), str) and ch.get("finish_reason"):
+            return ("final", msg["content"], None)
+
+    t = str(ev.get("type") or ev.get("event") or "").lower()
+    if t in _STEP_TYPES:
+        val = (
+            ev.get("name") or ev.get("tool") or ev.get("text") or ev.get("message")
+            or ev.get("status") or ev.get("content") or ev.get("detail")
+        )
+        return ("step", str(val).strip() if val else "", None)
+    if t in _CONTENT_TYPES:
+        val = ev.get("content") or ev.get("text") or ev.get("delta") or ev.get("token") or ev.get("value")
+        if isinstance(val, str):
+            return ("content", val, None)
+    if t in _FINAL_TYPES:
+        val = ev.get("text") or ev.get("content") or ev.get("message") or ev.get("reply") or ev.get("answer")
+        return ("final", str(val) if val else None, ev)
+
+    # Fallback: campos soltos de conteúdo.
+    if isinstance(ev.get("content"), str):
+        return ("content", ev["content"], None)
+    if isinstance(ev.get("text"), str):
+        return ("content", ev["text"], None)
+    return ("", None, None)
+
+
+async def _respond_hermes_api_stream(payload: dict[str, Any]):
+    """Gera eventos {'type': 'step'|'partial'|'final', ...} a partir do gateway."""
+    url = f"{config.HERMES_API_URL}/chat"
+    body = {"message": payload["text"], "session_id": _session_id(payload.get("user_id")), "stream": True}
+    text_acc = ""
+    final_obj: Optional[dict[str, Any]] = None
+    produced = False
+
+    try:
+        async with httpx.AsyncClient(timeout=config.HERMES_CLI_TIMEOUT) as client:
+            async with client.stream("POST", url, json=body) as resp:
+                if resp.status_code == 200:
+                    async for raw in resp.aiter_lines():
+                        line = (raw or "").strip()
+                        if not line:
+                            continue
+                        data = line[5:].strip() if line.startswith("data:") else line
+                        if data == "[DONE]":
+                            break
+                        try:
+                            ev = json.loads(data)
+                        except json.JSONDecodeError:
+                            text_acc += data  # token de texto puro
+                            produced = True
+                            yield {"type": "partial", "text": text_acc}
+                            continue
+                        kind, value, extra = _interpret_sse_event(ev)
+                        if kind == "step" and value:
+                            produced = True
+                            yield {"type": "step", "text": value}
+                        elif kind == "content" and value:
+                            text_acc += value
+                            produced = True
+                            yield {"type": "partial", "text": text_acc}
+                        elif kind == "final":
+                            produced = True
+                            final_obj = extra or {}
+                            if value:
+                                text_acc = value
+    except Exception:  # noqa: BLE001
+        produced = False
+
+    if not produced and not text_acc:
+        # Gateway não transmitiu (ou falhou) → usa o caminho normal (funciona).
+        result = await _respond_hermes_api(payload)
+        yield {"type": "final", **result}
+        return
+
+    text = (final_obj or {}).get("text") if final_obj else None
+    text = text or text_acc or "Pronto."
+    buttons = None
+    if final_obj:
+        buttons = normalize_buttons(final_obj.get("buttons") or final_obj.get("options"))
+    yield {"type": "final", "text": text, "buttons": buttons, "suggestions": None, "narrate": True}
+
+
+async def respond_stream(
+    text: str,
+    history: list[dict[str, Any]],
+    settings: dict[str, Any],
+    project: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    """Versão streaming de respond(). Só hermes_api transmite passos; os demais
+    backends emitem um único evento 'final' (comportamento idêntico ao anterior)."""
+    if config.HERMES_BACKEND == "hermes_api":
+        payload = {"text": text, "history": history, "settings": settings, "project": project, "user_id": user_id}
+        async for ev in _respond_hermes_api_stream(payload):
+            yield ev
+        return
+    result = await respond(text, history, settings, project=project, user_id=user_id)
+    yield {"type": "final", **result}

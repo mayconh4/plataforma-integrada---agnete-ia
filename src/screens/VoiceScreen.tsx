@@ -47,7 +47,7 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: string }[] = [
 export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
   const { colors, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { messages, thinking, liveStatus, status, activeProject, wsUrl, voice } = useHermes();
+  const { messages, thinking, liveSteps, partialText, status, activeProject, wsUrl, voice } = useHermes();
   const [inputText, setInputText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverInput, setServerInput] = useState('');
@@ -198,12 +198,31 @@ export function VoiceScreen({ kbVisible }: { kbVisible: boolean }) {
             contentContainerStyle={styles.messageListContent}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-            ListFooterComponent={thinking ? (
-              <View style={styles.typingRow}>
-                <Text style={styles.typingDot}>●</Text>
-                <Text style={styles.typing}>{liveStatus || 'Viper está pensando…'}</Text>
-              </View>
-            ) : null}
+            ListFooterComponent={
+              thinking || partialText ? (
+                <View style={styles.activity}>
+                  {liveSteps.map((s, i) => {
+                    const last = i === liveSteps.length - 1;
+                    return (
+                      <View key={`${i}-${s}`} style={styles.stepRow}>
+                        <Text style={[styles.stepDot, { color: last ? colors.accent : colors.textMuted }]}>{last ? '●' : '✓'}</Text>
+                        <Text style={[styles.stepText, last && styles.stepTextLast]} numberOfLines={2}>{s}</Text>
+                      </View>
+                    );
+                  })}
+                  {partialText ? (
+                    <View style={styles.partialBubble}>
+                      <Text style={styles.partialText}>{partialText}</Text>
+                    </View>
+                  ) : liveSteps.length === 0 ? (
+                    <View style={styles.stepRow}>
+                      <Text style={[styles.stepDot, { color: colors.accent }]}>●</Text>
+                      <Text style={styles.stepText}>Viper está pensando…</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null
+            }
           />
         )}
 
@@ -343,9 +362,13 @@ const makeStyles = (colors: Palette) =>
     heroPrompt: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', textAlign: 'center' },
     messageList: { flex: 1 },
     messageListContent: { paddingVertical: 12 },
-    typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingVertical: 8 },
-    typingDot: { color: colors.accent, fontSize: 10 },
-    typing: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', flex: 1 },
+    activity: { paddingHorizontal: 20, paddingVertical: 8, gap: 6 },
+    stepRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    stepDot: { fontSize: 11, width: 14, textAlign: 'center' },
+    stepText: { color: colors.textMuted, fontSize: 13, flex: 1 },
+    stepTextLast: { color: colors.textSecondary, fontWeight: '600' },
+    partialBubble: { marginTop: 6, alignSelf: 'flex-start', maxWidth: '88%', backgroundColor: colors.viperBubble, borderColor: colors.glassBorder, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10 },
+    partialText: { color: colors.textPrimary, fontSize: 15, lineHeight: 22 },
     quickRow: { maxHeight: 46, flexGrow: 0 },
     quickContent: { paddingHorizontal: 12, gap: 8, alignItems: 'center' },
     quickChip: { backgroundColor: colors.glassBg, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: colors.glassBorder },

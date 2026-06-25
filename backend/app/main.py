@@ -124,7 +124,19 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
             history = await supabase_store.recent_messages(user_id)
             settings = await supabase_store.get_settings(user_id)
-            reply = await hermes.respond(text, history, settings, project=project, user_id=user_id)
+
+            # Transmite os passos em tempo real (estilo Telegram) e captura o final.
+            reply: dict | None = None
+            async for ev in hermes.respond_stream(text, history, settings, project=project, user_id=user_id):
+                etype = ev.get("type")
+                if etype == "step":
+                    await _send(ws, {"type": "step", "text": ev.get("text", "")})
+                elif etype == "partial":
+                    await _send(ws, {"type": "partial", "text": ev.get("text", "")})
+                elif etype == "final":
+                    reply = ev
+            if reply is None:
+                reply = {"text": "Pronto.", "buttons": None, "suggestions": None, "narrate": True}
 
             row = await supabase_store.insert_message(
                 user_id,
