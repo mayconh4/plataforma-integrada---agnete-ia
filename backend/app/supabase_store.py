@@ -19,16 +19,30 @@ def _rest_headers() -> dict[str, str]:
 
 
 async def verify_user(access_token: str) -> Optional[dict[str, Any]]:
-    """Valida o JWT do usuário (Supabase Auth) e retorna o usuário, ou None."""
+    """Valida o JWT do usuário (Supabase Auth) e retorna o usuário, ou None.
+
+    O `apikey` precisa ser uma chave de projeto válida; o `Authorization` Bearer
+    é o token do usuário (é ele que identifica quem está logado). Tentamos a
+    chave secreta primeiro porque a chave anon LEGADA (eyJ...) costuma ficar
+    DESATIVADA quando o projeto migra para o novo sistema (sb_publishable_/
+    sb_secret_) — e aí a validação com a anon retorna 401 e o app não conecta.
+    """
     if not access_token:
         return None
     url = f"{config.SUPABASE_URL}/auth/v1/user"
-    headers = {"apikey": config.SUPABASE_ANON_KEY, "Authorization": f"Bearer {access_token}"}
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url, headers=headers)
-        if resp.status_code != 200:
-            return None
-        return resp.json()
+    for api_key in (config.SUPABASE_SERVICE_ROLE_KEY, config.SUPABASE_ANON_KEY):
+        if not api_key:
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    url, headers={"apikey": api_key, "Authorization": f"Bearer {access_token}"}
+                )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:  # noqa: BLE001
+            continue
+    return None
 
 
 async def insert_message(
