@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
+import { mono } from '../theme/typography';
 import { isVoiceEnabled, toggleVoice } from '../services/voiceService';
 
 export function VoiceToggle() {
@@ -10,49 +10,36 @@ export function VoiceToggle() {
 
   const handleToggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newState = toggleVoice();
-    setEnabled(newState);
+    setEnabled(toggleVoice());
   };
 
+  const color = enabled ? colors.accent : colors.textMuted;
+
   return (
-    <TouchableOpacity onPress={handleToggle} style={styles.container}>
-      <BlurView intensity={30} tint="dark" style={styles.blur}>
-        <View style={[styles.indicator, enabled && styles.indicatorActive]} />
-        <Text style={styles.icon}>{enabled ? '🔊' : '🔇'}</Text>
-        <Text style={styles.label}>{enabled ? 'VOZ' : 'MUDO'}</Text>
-      </BlurView>
+    <TouchableOpacity onPress={handleToggle} activeOpacity={0.7} style={[styles.container, { borderColor: color }]}>
+      <View style={[styles.indicator, { backgroundColor: color }]} />
+      <Text style={[styles.label, { color }]}>{enabled ? 'VOZ:ON' : 'VOZ:OFF'}</Text>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.glassBorder,
-  },
-  blur: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
     gap: 6,
+    // sharp corners — no borderRadius
   },
   indicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.textMuted,
-  },
-  indicatorActive: {
-    backgroundColor: colors.accent,
-  },
-  icon: {
-    fontSize: 14,
+    width: 7,
+    height: 7,
+    // square indicator
   },
   label: {
-    color: colors.textSecondary,
+    fontFamily: mono,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,

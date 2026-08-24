@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { ChatMessage } from '../types/chat';
 import { ContextualButtons } from './ContextualButtons';
 import { SuggestionChips } from './SuggestionChips';
 import { colors } from '../theme/colors';
+import { mono } from '../theme/typography';
 
 interface Props {
   message: ChatMessage;
@@ -14,26 +14,28 @@ interface Props {
 
 export function ChatBubble({ message, onButtonPress, onSuggestionPress }: Props) {
   const isHermes = message.role === 'hermes';
+  const label = isHermes ? 'HERMES' : 'VOCÊ';
+  const labelColor = isHermes ? colors.accent : colors.primary;
+  const prompt = isHermes ? 'PS>' : '>';
 
   return (
-    <View style={[styles.row, isHermes ? styles.rowHermes : styles.rowUser]}>
-      {isHermes && (
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>⚡</Text>
+    <View style={styles.row}>
+      <View style={[styles.headerLine]}>
+        <View style={[styles.tag, { borderColor: labelColor }]}>
+          <Text style={[styles.tagText, { color: labelColor }]}>{label}</Text>
         </View>
-      )}
-      <View style={[styles.bubbleContainer, isHermes ? styles.hermesBubble : styles.userBubble]}>
-        <BlurView intensity={20} tint="dark" style={styles.blur}>
-          <Text style={[styles.text, isHermes ? styles.hermesText : styles.userText]}>
-            {message.text}
-          </Text>
-          {isHermes && message.buttons && message.buttons.length > 0 && (
-            <ContextualButtons buttons={message.buttons} onPress={onButtonPress} />
-          )}
-          {isHermes && message.suggestions && message.suggestions.length > 0 && (
-            <SuggestionChips suggestions={message.suggestions} onPress={onSuggestionPress} />
-          )}
-        </BlurView>
+      </View>
+      <View style={[styles.block, { borderLeftColor: labelColor }]}>
+        <Text style={styles.text}>
+          <Text style={[styles.prompt, { color: labelColor }]}>{prompt} </Text>
+          {message.text}
+        </Text>
+        {isHermes && message.buttons && message.buttons.length > 0 && (
+          <ContextualButtons buttons={message.buttons} onPress={onButtonPress} />
+        )}
+        {isHermes && message.suggestions && message.suggestions.length > 0 && (
+          <SuggestionChips suggestions={message.suggestions} onPress={onSuggestionPress} />
+        )}
       </View>
     </View>
   );
@@ -41,56 +43,41 @@ export function ChatBubble({ message, onButtonPress, onSuggestionPress }: Props)
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
     marginVertical: 6,
     paddingHorizontal: 12,
-    alignItems: 'flex-end',
   },
-  rowHermes: {
-    justifyContent: 'flex-start',
-  },
-  rowUser: {
-    justifyContent: 'flex-end',
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
+  headerLine: {
+    flexDirection: 'row',
     marginBottom: 4,
   },
-  avatarText: {
-    fontSize: 16,
-  },
-  bubbleContainer: {
-    maxWidth: '80%',
-    borderRadius: 20,
-    overflow: 'hidden',
+  tag: {
     borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    // sharp corners — no borderRadius
   },
-  hermesBubble: {
-    borderColor: 'rgba(108, 99, 255, 0.2)',
-    backgroundColor: colors.hermesBubble,
+  tagText: {
+    fontFamily: mono,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
-  userBubble: {
-    borderColor: 'rgba(0, 212, 170, 0.2)',
-    backgroundColor: colors.userBubble,
-  },
-  blur: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  block: {
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   text: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  hermesText: {
+    fontFamily: mono,
+    fontSize: 14,
+    lineHeight: 21,
     color: colors.textPrimary,
   },
-  userText: {
-    color: colors.textPrimary,
+  prompt: {
+    fontFamily: mono,
+    fontWeight: '700',
   },
 });

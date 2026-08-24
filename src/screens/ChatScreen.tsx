@@ -10,13 +10,13 @@ import {
   Text,
   SafeAreaView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage, ConversationContext } from '../types/chat';
 import { processUserInput, processButtonAction, getWelcomeMessage } from '../services/hermesEngine';
 import { speak } from '../services/voiceService';
 import { colors } from '../theme/colors';
+import { mono } from '../theme/typography';
 
 export function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([getWelcomeMessage()]);
@@ -75,23 +75,21 @@ export function ChatScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={[colors.backgroundGradientStart, colors.backgroundGradientEnd]}
-      style={styles.gradient}
-    >
+    <View style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <Text style={styles.headerIcon}>⚡</Text>
+              <View style={styles.logoBox}>
+                <Text style={styles.logoText}>PS</Text>
+              </View>
               <View>
-                <Text style={styles.headerTitle}>Hermes</Text>
-                <Text style={styles.headerSubtitle}>Assistente Operacional</Text>
+                <Text style={styles.headerTitle}>HERMES</Text>
+                <Text style={styles.headerSubtitle}>console operacional</Text>
               </View>
             </View>
             <VoiceToggle />
@@ -117,9 +115,10 @@ export function ChatScreen() {
           {/* Input */}
           <View style={styles.inputBar}>
             <View style={styles.inputContainer}>
+              <Text style={styles.inputPrompt}>{'>'}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Digite algo ou toque nos botões..."
+                placeholder="digite um comando..."
                 placeholderTextColor={colors.textMuted}
                 value={inputText}
                 onChangeText={setInputText}
@@ -131,19 +130,22 @@ export function ChatScreen() {
                 style={[styles.sendButton, inputText.trim() ? styles.sendButtonActive : null]}
                 disabled={!inputText.trim()}
               >
-                <Text style={styles.sendIcon}>↑</Text>
+                <Text style={[styles.sendIcon, inputText.trim() ? styles.sendIconActive : null]}>
+                  ENTER
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: {
+  root: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   safe: {
     flex: 1,
@@ -155,28 +157,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: colors.border,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  headerIcon: {
-    fontSize: 28,
+  logoBox: {
+    width: 34,
+    height: 34,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // sharp corners
   },
-  headerTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
+  logoText: {
+    fontFamily: mono,
+    color: colors.primary,
+    fontSize: 14,
     fontWeight: '700',
   },
+  headerTitle: {
+    fontFamily: mono,
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
   headerSubtitle: {
+    fontFamily: mono,
     color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 10,
     letterSpacing: 0.5,
   },
   messageList: {
@@ -188,39 +206,51 @@ const styles = StyleSheet.create({
   inputBar: {
     paddingHorizontal: 12,
     paddingVertical: 10,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.border,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 24,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    paddingLeft: 16,
-    paddingRight: 4,
+    borderColor: colors.border,
+    paddingLeft: 10,
+    gap: 8,
+    // sharp corners
+  },
+  inputPrompt: {
+    fontFamily: mono,
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
   },
   input: {
     flex: 1,
+    fontFamily: mono,
     color: colors.textPrimary,
-    fontSize: 15,
-    paddingVertical: 12,
+    fontSize: 14,
+    paddingVertical: 11,
   },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    backgroundColor: colors.surfaceRaised,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
   },
   sendButtonActive: {
     backgroundColor: colors.primary,
   },
   sendIcon: {
-    color: colors.textPrimary,
-    fontSize: 18,
+    fontFamily: mono,
+    color: colors.textMuted,
+    fontSize: 12,
     fontWeight: '700',
+    letterSpacing: 1,
+  },
+  sendIconActive: {
+    color: colors.background,
   },
 });

@@ -1,19 +1,24 @@
+// PowerShell-inspired palette: solid PowerShell blue, terminal accents,
+// no translucency. Legacy glass* keys are kept as opaque values so older
+// references keep working, but the design no longer uses blur.
 export const colors = {
-  glassBg: 'rgba(255, 255, 255, 0.12)',
-  glassBorder: 'rgba(255, 255, 255, 0.25)',
-  glassHighlight: 'rgba(255, 255, 255, 0.4)',
-  glassShadow: 'rgba(0, 0, 0, 0.15)',
-  primary: '#6C63FF',
-  primaryGlow: 'rgba(108, 99, 255, 0.3)',
-  accent: '#00D4AA',
-  danger: '#FF4757',
-  background: '#0A0A1A',
-  backgroundGradientStart: '#0A0A1A',
-  backgroundGradientEnd: '#1A1A3E',
-  surface: '#141428',
-  textPrimary: '#FFFFFF',
-  textSecondary: 'rgba(255, 255, 255, 0.7)',
-  textMuted: 'rgba(255, 255, 255, 0.4)',
-  hermesBubble: 'rgba(108, 99, 255, 0.15)',
-  userBubble: 'rgba(0, 212, 170, 0.15)',
+  glassBg: '#013A87',
+  glassBorder: '#2C6FD6',
+  glassHighlight: '#3C82F0',
+  glassShadow: '#000000',
+  primary: '#FFD866', // PowerShell prompt yellow
+  primaryGlow: 'rgba(255, 216, 102, 0.25)',
+  accent: '#5BE3C0', // terminal cyan-green
+  danger: '#FF6B6B',
+  background: '#012456', // classic PowerShell blue
+  backgroundGradientStart: '#012456',
+  backgroundGradientEnd: '#012456',
+  surface: '#001A40', // darker panel (header / input bar)
+  surfaceRaised: '#01337A', // message / control fill
+  border: '#2C6FD6', // solid divider / outline
+  textPrimary: '#EEEDF0', // PowerShell light gray text
+  textSecondary: '#B7C4DE',
+  textMuted: '#6E85AD',
+  hermesBubble: '#01337A',
+  userBubble: '#013A87',
 };
