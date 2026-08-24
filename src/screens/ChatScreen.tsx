@@ -15,15 +15,21 @@ import { VoiceToggle } from '../components/VoiceToggle';
 import { ChatMessage, ConversationContext } from '../types/chat';
 import { processUserInput, processButtonAction, getWelcomeMessage } from '../services/hermesEngine';
 import { speak } from '../services/voiceService';
+import { startWakeWord, stopWakeWord } from '../services/wakeWordService';
+import { startListening, stopListening } from '../services/speechInput';
+import { isWakeWordConfigured, WAKE_WORD } from '../config/wakeWord';
 import { colors } from '../theme/colors';
 import { mono } from '../theme/typography';
+
+type VoiceStatus = 'off' | 'waiting' | 'listening';
 
 export function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([getWelcomeMessage()]);
   const [inputText, setInputText] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('off');
   const flatListRef = useRef<FlatList>(null);
-
-  const context: ConversationContext = { history: messages };
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -37,19 +43,60 @@ export function ChatScreen() {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const handleSend = () => {
-    const text = inputText.trim();
+  // Shared entry point: typed text, suggestions, and voice all route here.
+  const submitUserText = (raw: string) => {
+    const text = raw.trim();
     if (!text) return;
-    setInputText('');
-
     const userMsg: ChatMessage = {
       id: `user_${Date.now()}`,
       role: 'user',
       text,
       timestamp: Date.now(),
     };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
+    const context: ConversationContext = { history: [...messagesRef.current, userMsg] };
+    addMessages(userMsg, processUserInput(text, context));
+  };
+
+  // Wake word "continental": listen for it, and on detection capture one
+  // spoken command, answer it, then resume waiting for the wake word.
+  const beginListening = () => {
+    setVoiceStatus('listening');
+    startListening({
+      onPartial: (t) => setInputText(t),
+      onResult: (t) => {
+        setInputText('');
+        submitUserText(t);
+      },
+      onEnd: () => setVoiceStatus(isWakeWordConfigured() ? 'waiting' : 'off'),
+      onError: () => setVoiceStatus(isWakeWordConfigured() ? 'waiting' : 'off'),
+    });
+  };
+
+  useEffect(() => {
+    if (!isWakeWordConfigured()) return;
+    let mounted = true;
+    startWakeWord({
+      onWake: () => {
+        if (!mounted) return;
+        stopListening();
+        beginListening();
+      },
+      onError: () => setVoiceStatus('off'),
+    }).then((ok) => {
+      if (mounted && ok) setVoiceStatus('waiting');
+    });
+    return () => {
+      mounted = false;
+      stopWakeWord();
+      stopListening();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSend = () => {
+    const text = inputText;
+    setInputText('');
+    submitUserText(text);
   };
 
   const handleButtonPress = (action: string) => {
@@ -59,20 +106,11 @@ export function ChatScreen() {
       text: `[${action}]`,
       timestamp: Date.now(),
     };
-    const hermesMsg = processButtonAction(action, context);
-    addMessages(userMsg, hermesMsg);
+    const context: ConversationContext = { history: [...messagesRef.current, userMsg] };
+    addMessages(userMsg, processButtonAction(action, context));
   };
 
-  const handleSuggestionPress = (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      text,
-      timestamp: Date.now(),
-    };
-    const hermesMsg = processUserInput(text, context);
-    addMessages(userMsg, hermesMsg);
-  };
+  const handleSuggestionPress = (text: string) => submitUserText(text);
 
   return (
     <View style={styles.root}>
@@ -89,7 +127,13 @@ export function ChatScreen() {
               </View>
               <View>
                 <Text style={styles.headerTitle}>HERMES</Text>
-                <Text style={styles.headerSubtitle}>console operacional</Text>
+                <Text style={styles.headerSubtitle}>
+                  {voiceStatus === 'listening'
+                    ? '● ouvindo...'
+                    : voiceStatus === 'waiting'
+                      ? `aguardando "${WAKE_WORD}"`
+                      : 'console operacional'}
+                </Text>
               </View>
             </View>
             <VoiceToggle />
@@ -118,7 +162,7 @@ export function ChatScreen() {
               <Text style={styles.inputPrompt}>{'>'}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="digite um comando..."
+                placeholder={voiceStatus === 'listening' ? 'ouvindo sua voz...' : 'digite um comando...'}
                 placeholderTextColor={colors.textMuted}
                 value={inputText}
                 onChangeText={setInputText}

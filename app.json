@@ -9,7 +9,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "fetch", "remote-notification"]
+        "UIBackgroundModes": ["audio", "fetch", "remote-notification"],
+        "NSMicrophoneUsageDescription": "O Hermes usa o microfone para ouvir a palavra \"continental\" e seus comandos de voz.",
+        "NSSpeechRecognitionUsageDescription": "O Hermes converte sua fala em texto para responder aos seus comandos."
       }
     },
     "android": {
@@ -25,7 +27,9 @@
         "SCHEDULE_EXACT_ALARM",
         "POST_NOTIFICATIONS",
         "WAKE_LOCK",
-        "FOREGROUND_SERVICE"
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -40,7 +44,14 @@
         }
       ],
       "expo-task-manager",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "O Hermes usa o microfone para ouvir seus comandos de voz.",
+          "speechRecognitionPermission": "O Hermes converte sua fala em texto para responder aos seus comandos."
+        }
+      ]
     ]
   }
 }
