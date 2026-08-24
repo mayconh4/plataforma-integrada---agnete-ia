@@ -15,7 +15,7 @@ export default function App() {
 
   return (
     <>
-      <StatusBar barStyle="light-content" backgroundColor="#001A40" />
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
       <ChatScreen />
     </>
   );
