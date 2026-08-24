@@ -34,3 +34,18 @@ export function speak(text: string): void {
 export function stopSpeaking(): void {
   Speech.stop();
 }
+
+/** Wires delivered/opened alerts to speech while the JS engine is alive
+ *  (foreground or backgrounded-but-not-killed). Fully-closed-app delivery
+ *  is handled separately by backgroundVoiceTask's headless task. */
+export function attachAlertNarration(
+  onAlertDelivered: (handler: (text: string) => void) => () => void,
+  onAlertOpened: (handler: (text: string) => void) => () => void
+): () => void {
+  const unsubDelivered = onAlertDelivered((text) => speak(text));
+  const unsubOpened = onAlertOpened((text) => speak(text));
+  return () => {
+    unsubDelivered();
+    unsubOpened();
+  };
+}
