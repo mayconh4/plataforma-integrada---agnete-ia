@@ -8,6 +8,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.hermes.continental",
       "infoPlist": {
         "UIBackgroundModes": ["audio", "fetch", "remote-notification"],
         "NSMicrophoneUsageDescription": "O Hermes usa o microfone para ouvir a palavra \"continental\" e seus comandos de voz.",
@@ -15,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.hermes.continental",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
